@@ -585,6 +585,142 @@ async function main() {
           return { success: true };
         });
 
+        // Project Catalog & Workspace Actions
+        ipcMain.handle('projects:list', async () => {
+          const catalog = new ProjectCatalog();
+          return catalog.list();
+        });
+
+        ipcMain.handle('projects:pickFolder', async () => {
+          const { dialog } = require('electron');
+          const res = await dialog.showOpenDialog({
+            title: 'Select Video Editing Project Folder',
+            properties: ['openDirectory']
+          });
+          if (res.canceled || !res.filePaths || res.filePaths.length === 0) {
+            return { canceled: true };
+          }
+          return { canceled: false, path: res.filePaths[0] };
+        });
+
+        ipcMain.handle('projects:track', async (event, projectPath, meta) => {
+          const cleanPath = path.resolve(projectPath);
+          const catalog = new ProjectCatalog();
+          const framegitDir = path.join(cleanPath, '.FrameGIT');
+          const altDir = path.join(cleanPath, '.framegit');
+          if (!fs.existsSync(framegitDir) && !fs.existsSync(altDir)) {
+            let files = [];
+            try { files = fs.readdirSync(cleanPath); } catch (_) {}
+            const prj = files.find(f => f.endsWith('.prproj') || f.endsWith('.drp')) || 'project.prproj';
+            const engine = new VersionEngine(cleanPath, prj);
+            engine.init();
+          }
+          const entry = catalog.register(cleanPath, meta || {});
+          return { success: true, project: entry };
+        });
+
+        ipcMain.handle('projects:getDetails', async (event, projectPath) => {
+          const cleanPath = path.resolve(projectPath);
+          let files = [];
+          try { files = fs.readdirSync(cleanPath); } catch (_) {}
+          const prj = files.find(f => f.endsWith('.prproj') || f.endsWith('.drp')) || 'project.prproj';
+          const engine = new VersionEngine(cleanPath, prj);
+          engine.open();
+          const status = engine.status();
+          const branches = engine.listBranches();
+          const history = engine.log(20);
+          return { status, branches, history };
+        });
+
+        ipcMain.handle('projects:commit', async (event, projectPath, message) => {
+          const cleanPath = path.resolve(projectPath);
+          let files = [];
+          try { files = fs.readdirSync(cleanPath); } catch (_) {}
+          const prj = files.find(f => f.endsWith('.prproj') || f.endsWith('.drp')) || 'project.prproj';
+          const engine = new VersionEngine(cleanPath, prj);
+          engine.open();
+          const res = await engine.commit(message || 'Timeline checkpoint');
+          const catalog = new ProjectCatalog();
+          catalog.register(cleanPath, {
+            headCommit: res.commitHash,
+            lastMessage: message,
+            currentBranch: res.branch
+          });
+          return res;
+        });
+
+        ipcMain.handle('projects:revert', async (event, projectPath, commitHash, force) => {
+          const cleanPath = path.resolve(projectPath);
+          let files = [];
+          try { files = fs.readdirSync(cleanPath); } catch (_) {}
+          const prj = files.find(f => f.endsWith('.prproj') || f.endsWith('.drp')) || 'project.prproj';
+          const engine = new VersionEngine(cleanPath, prj);
+          engine.open();
+          engine.rollback(commitHash, force !== false);
+          return { success: true, commitHash };
+        });
+
+        ipcMain.handle('projects:createBranch', async (event, projectPath, name) => {
+          const cleanPath = path.resolve(projectPath);
+          let files = [];
+          try { files = fs.readdirSync(cleanPath); } catch (_) {}
+          const prj = files.find(f => f.endsWith('.prproj') || f.endsWith('.drp')) || 'project.prproj';
+          const engine = new VersionEngine(cleanPath, prj);
+          engine.open();
+          engine.createBranch(name);
+          return { success: true, name };
+        });
+
+        ipcMain.handle('projects:switchBranch', async (event, projectPath, name, force) => {
+          const cleanPath = path.resolve(projectPath);
+          let files = [];
+          try { files = fs.readdirSync(cleanPath); } catch (_) {}
+          const prj = files.find(f => f.endsWith('.prproj') || f.endsWith('.drp')) || 'project.prproj';
+          const engine = new VersionEngine(cleanPath, prj);
+          engine.open();
+          const res = engine.switchBranch(name, force || false);
+          const catalog = new ProjectCatalog();
+          catalog.register(cleanPath, { currentBranch: name });
+          return res;
+        });
+
+        ipcMain.handle('projects:push', async (event, projectPath) => {
+          const cleanPath = path.resolve(projectPath);
+          let files = [];
+          try { files = fs.readdirSync(cleanPath); } catch (_) {}
+          const prj = files.find(f => f.endsWith('.prproj') || f.endsWith('.drp')) || 'project.prproj';
+          const engine = new VersionEngine(cleanPath, prj);
+          engine.open();
+          const currentBranch = engine.getCurrentBranch() || 'main';
+          if (engine.config && engine.config.cloud) {
+            const cloudClient = new CloudClient(engine.config.cloud);
+            const syncEngine = new SyncEngine(cleanPath, cloudClient, engine.db);
+            return await syncEngine.push(currentBranch);
+          }
+          return { pushed: true, branch: currentBranch, localOnly: true };
+        });
+
+        ipcMain.handle('projects:pull', async (event, projectPath) => {
+          const cleanPath = path.resolve(projectPath);
+          let files = [];
+          try { files = fs.readdirSync(cleanPath); } catch (_) {}
+          const prj = files.find(f => f.endsWith('.prproj') || f.endsWith('.drp')) || 'project.prproj';
+          const engine = new VersionEngine(cleanPath, prj);
+          engine.open();
+          const currentBranch = engine.getCurrentBranch() || 'main';
+          if (engine.config && engine.config.cloud) {
+            const cloudClient = new CloudClient(engine.config.cloud);
+            const syncEngine = new SyncEngine(cleanPath, cloudClient, engine.db);
+            return await syncEngine.pull(currentBranch);
+          }
+          return { pulled: true, branch: currentBranch, localOnly: true };
+        });
+
+        ipcMain.handle('system:getRunningEditors', async () => {
+          const monitor = new ProcessMonitor();
+          return monitor.poll();
+        });
+
         ipcMain.handle('shell:openExternal', async (event, url) => {
           if (url && (url.startsWith('https://') || url.startsWith('http://'))) {
             await shell.openExternal(url);

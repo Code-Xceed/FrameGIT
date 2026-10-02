@@ -3,7 +3,7 @@
  * 
  * Securely bridges renderer process to main process via contextIsolation.
  * Exposes the `window.framegit` API for local-first configuration,
- * GitHub OAuth device flow, credentials vault, and NLE editor detection.
+ * GitHub OAuth, credentials vault, project tracking, and NLE version control.
  */
 
 'use strict';
@@ -27,6 +27,19 @@ contextBridge.exposeInMainWorld('framegit', {
   // Creative Editor Integrations
   detectEditors: () => ipcRenderer.invoke('nle:detect'),
   installPlugin: (family) => ipcRenderer.invoke('nle:installPlugin', family),
+  getRunningEditors: () => ipcRenderer.invoke('system:getRunningEditors'),
+
+  // Project Catalog & Workspace Actions
+  listProjects: () => ipcRenderer.invoke('projects:list'),
+  pickProjectFolder: () => ipcRenderer.invoke('projects:pickFolder'),
+  trackProject: (path, meta) => ipcRenderer.invoke('projects:track', path, meta),
+  getProjectDetails: (path) => ipcRenderer.invoke('projects:getDetails', path),
+  commitProject: (path, message) => ipcRenderer.invoke('projects:commit', path, message),
+  revertProject: (path, hash, force) => ipcRenderer.invoke('projects:revert', path, hash, force),
+  createBranch: (path, name) => ipcRenderer.invoke('projects:createBranch', path, name),
+  switchBranch: (path, name, force) => ipcRenderer.invoke('projects:switchBranch', path, name, force),
+  pushProject: (path) => ipcRenderer.invoke('projects:push', path),
+  pullProject: (path) => ipcRenderer.invoke('projects:pull', path),
 
   // Background Watcher & Auto-Start Service
   configureStartup: (enable) => ipcRenderer.invoke('service:configureStartup', enable),
