@@ -63,15 +63,22 @@ class GitHubAuth {
    * @param {number} [interval=5] 
    * @param {number} [expiresIn=900]
    * @param {Function} [onPollTick] Callback invoked on each polling interval
-   * @returns {Promise<{accessToken: string, tokenType: string, scope: string}>}
+   * @param {AbortSignal} [abortSignal] Optional AbortSignal to cancel polling
+   * @returns {Promise<{accessToken: string, tokenType: string, scope: string, cancelled?: boolean}>}
    */
-  async pollForToken(deviceCode, interval = 5, expiresIn = 900, onPollTick = null) {
+  async pollForToken(deviceCode, interval = 5, expiresIn = 900, onPollTick = null, abortSignal = null) {
     const url = `${this.baseUrl}/login/oauth/access_token`;
     const startTime = Date.now();
     let currentInterval = interval;
 
     while ((Date.now() - startTime) < (expiresIn * 1000)) {
+      if (abortSignal && abortSignal.aborted) {
+        return { accessToken: null, tokenType: '', scope: '', cancelled: true };
+      }
       await new Promise(r => setTimeout(r, currentInterval * 1000));
+      if (abortSignal && abortSignal.aborted) {
+        return { accessToken: null, tokenType: '', scope: '', cancelled: true };
+      }
       if (onPollTick) onPollTick();
 
       const response = await fetch(url, {

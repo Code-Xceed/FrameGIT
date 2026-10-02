@@ -3,7 +3,7 @@
  * 
  * Securely bridges renderer process to main process via contextIsolation.
  * Exposes the `window.framegit` API for local-first configuration,
- * GitHub credentials vault, and NLE editor detection.
+ * GitHub OAuth device flow, credentials vault, and NLE editor detection.
  */
 
 'use strict';
@@ -16,7 +16,10 @@ contextBridge.exposeInMainWorld('framegit', {
   completeSetup: (options) => ipcRenderer.invoke('setup:complete', options),
   resetSetup: () => ipcRenderer.invoke('setup:reset'),
 
-  // GitHub Local-First Vault & Verification
+  // GitHub OAuth & Vault
+  startGitHubOAuth: (options) => ipcRenderer.invoke('github:startOAuth', options),
+  waitForGitHubOAuth: () => ipcRenderer.invoke('github:waitForOAuth'),
+  cancelGitHubOAuth: () => ipcRenderer.invoke('github:cancelOAuth'),
   verifyGitHubToken: (token) => ipcRenderer.invoke('github:verifyToken', token),
   saveGitHubConfig: (config) => ipcRenderer.invoke('github:saveConfig', config),
   skipGitHubConfig: () => ipcRenderer.invoke('github:skipConfig'),
@@ -28,7 +31,8 @@ contextBridge.exposeInMainWorld('framegit', {
   // Background Watcher & Auto-Start Service
   configureStartup: (enable) => ipcRenderer.invoke('service:configureStartup', enable),
 
-  // System Utilities
+  // System Utilities & Clipboard
   openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
+  copyToClipboard: (text) => ipcRenderer.invoke('clipboard:writeText', text),
   platform: process.platform
 });

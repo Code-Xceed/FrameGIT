@@ -15,6 +15,7 @@ const { VisualDiff } = require('../core/visual_diff');
 const { SyncEngine } = require('../core/sync_engine');
 const { CloudClient } = require('../core/cloud_client');
 const { GitHubApiClient } = require('../core/github_sync');
+const { GitHubAuth } = require('../core/github_auth');
 const { safeJsonParse } = require('../core/errors');
 const { getDefaultUserStore } = require('./user_store');
 
@@ -430,6 +431,112 @@ async function main() {
 
         ipcMain.handle('github:saveConfig', async (event, config) => {
           userStore.saveGitHubAuth(config || {});
+          return { success: true };
+        });
+
+        let activeOAuthSession = null;
+
+        ipcMain.handle('github:startOAuth', async (event, options) => {
+          try {
+            const auth = new GitHubAuth(options || {});
+            const deviceData = await auth.requestDeviceCode('repo,read:user');
+            const abortController = new AbortController();
+
+            activeOAuthSession = {
+              auth,
+              deviceData,
+              abortController,
+              cancelled: false
+            };
+
+            if (deviceData.verificationUri) {
+              shell.openExternal(deviceData.verificationUri).catch(() => {});
+            }
+
+            return {
+              started: true,
+              userCode: deviceData.userCode,
+              verificationUri: deviceData.verificationUri,
+              expiresIn: deviceData.expiresIn
+            };
+          } catch (err) {
+            return {
+              started: false,
+              error: err.message,
+              fallbackToToken: true
+            };
+          }
+        });
+
+        ipcMain.handle('github:waitForOAuth', async () => {
+          if (!activeOAuthSession) {
+            return { success: false, error: 'No active OAuth session' };
+          }
+          const session = activeOAuthSession;
+          try {
+            const tokenResult = await session.auth.pollForToken(
+              session.deviceData.deviceCode,
+              session.deviceData.interval,
+              session.deviceData.expiresIn,
+              null,
+              session.abortController.signal
+            );
+
+            if (tokenResult.cancelled || session.cancelled) {
+              return { success: false, cancelled: true };
+            }
+
+            if (!tokenResult.accessToken) {
+              return { success: false, error: 'Failed to obtain access token' };
+            }
+
+            const client = new GitHubApiClient({ token: tokenResult.accessToken });
+            const userRes = await client._request('GET', '/user');
+            if (!userRes || !userRes.login) {
+              return { success: false, error: 'Failed to retrieve GitHub user profile' };
+            }
+
+            userStore.saveGitHubAuth({
+              token: tokenResult.accessToken,
+              username: userRes.login,
+              name: userRes.name || userRes.login,
+              email: userRes.email || null,
+              avatarUrl: userRes.avatar_url || null
+            });
+
+            activeOAuthSession = null;
+            return {
+              success: true,
+              user: {
+                login: userRes.login,
+                name: userRes.name || userRes.login,
+                email: userRes.email || null,
+                avatar_url: userRes.avatar_url || null,
+                public_repos: userRes.public_repos || 0
+              }
+            };
+          } catch (err) {
+            if (session.cancelled) {
+              return { success: false, cancelled: true };
+            }
+            return { success: false, error: err.message };
+          }
+        });
+
+        ipcMain.handle('github:cancelOAuth', async () => {
+          if (activeOAuthSession) {
+            activeOAuthSession.cancelled = true;
+            if (activeOAuthSession.abortController) {
+              activeOAuthSession.abortController.abort();
+            }
+            activeOAuthSession = null;
+          }
+          return { success: true };
+        });
+
+        ipcMain.handle('clipboard:writeText', async (event, text) => {
+          const { clipboard } = require('electron');
+          clipboard.writeText(text || '');
           return { success: true };
         });
 
