@@ -1,0 +1,64 @@
+{
+  "$schema": "./framegit.schema.json",
+  "version": "1.0.0",
+  "storage": {
+    "hashAlgorithm": "blake2s256",
+    "chunkMinSize": 262144,
+    "chunkTargetSize": 1048576,
+    "chunkMaxSize": 4194304
+  },
+  "cloud": {
+    "provider": "r2",
+    "endpoint": "",
+    "bucket": "",
+    "region": "auto",
+    "accessKeyId": "",
+    "secretAccessKey": "",
+    "isMock": false
+  },
+  "github": {
+    "token": "",
+    "defaultOrg": "",
+    "metadataRepo": "",
+    "isMock": false
+  },
+  "daemon": {
+    "port": 41793,
+    "host": "127.0.0.1"
+  },
+  "project": {
+    "defaultBranch": "main",
+    "assetDirectories": [
+      "Footage",
+      "Media",
+      "Assets",
+      "Audio",
+      "Graphics",
+      "Images",
+      "VFX",
+      "GFX"
+    ],
+    "ignorePatterns": [
+      "node_modules/**",
+      ".framegit/**",
+      "*.tmp",
+      "*.autosave",
+      "*.bak",
+      "Media Cache Files/**",
+      "Peak Files/**",
+      "Adobe Premiere Pro Auto-Save/**"
+    ],
+    "databaseFilename": "state.db"
+  },
+  "user": {
+    "name": "",
+    "email": ""
+  },
+  "editor": {
+    "ticksPerSecond": {
+      "premiere": 254016000000,
+      "resolve": 1
+    },
+    "defaultFrameRate": 24
+  }
+}

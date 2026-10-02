@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Test generated workspaces
+test/*_workspace/
+
+# IDE & OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Local cache & logs
+.freebuff/
+*.log
+npm-debug.log*
+__pycache__/
+*.py[cod]
+
+# FrameGit local repository directories and secrets
+.framegit/
+framegit.vault.json
+
+# Build intermediates & large binary SEA blobs
+dist/staging/
+dist/payload.zip
+dist/bundle.js
+dist/sea-prep.blob
+dist/framegit.exe
+
+# Keep the compiled Windows Setup Wizard installer & Premiere CCX package
+!dist/FrameGit-Setup-1.0.0.exe
+!dist/FrameGit-Premiere.ccx

@@ -1,0 +1,36 @@
+{
+  "name": "framegit",
+  "version": "1.0.0",
+  "description": "Git-style content-addressed version control for video editors (Premiere Pro & DaVinci Resolve)",
+  "main": "index.js",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "lint": "node scripts/lint_no_hardcode.js",
+    "test:unit": "node scripts/run_unit_tests.js",
+    "test": "npm run lint && npm run test:unit",
+    "build:sea": "node scripts/build_sea.js",
+    "build:ccx": "node scripts/build_uxp_ccx.js",
+    "build:installer": "node scripts/build_installer.js"
+  },
+  "keywords": [
+    "version-control",
+    "video-editing",
+    "premiere-pro",
+    "davinci-resolve",
+    "fastcdc",
+    "cas",
+    "content-defined-chunking"
+  ],
+  "author": "FrameGit Contributors",
+  "license": "MIT",
+  "type": "commonjs",
+  "bin": {
+    "framegit": "./bin/framegit.js"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^5.11.2",
+    "xmlbuilder2": "^4.0.3"
+  }
+}
