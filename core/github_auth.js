@@ -7,12 +7,23 @@
 
 'use strict';
 
+const crypto = require('node:crypto');
 const { NetworkError, CloudAuthError } = require('./errors');
 
 // Official FrameGit registered GitHub OAuth App Client ID
 const DEFAULT_CLIENT_ID = 'Ov23liEdxYDHJ3uGPzQv';
 
 class GitHubAuth {
+  /**
+   * Generates a secure PKCE (RFC 7636) code verifier and code challenge.
+   * @returns {{ verifier: string, challenge: string, method: string }}
+   */
+  static generatePkce() {
+    const verifier = crypto.randomBytes(32).toString('base64url');
+    const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
+    return { verifier, challenge, method: 'S256' };
+  }
+
   /**
    * @param {Object} [options]
    * @param {string} [options.clientId]
@@ -133,20 +144,32 @@ class GitHubAuth {
   }
 
   /**
-   * Step 3: Build Web Browser Authorization URL (1-Click Browser OAuth).
+   * Step 3: Build Web Browser Authorization URL (1-Click Browser OAuth with PKCE support).
    * @param {Object} options
    * @param {string} options.redirectUri e.g. 'http://127.0.0.1:41793/oauth/callback'
    * @param {string} options.state Cryptographic random state for CSRF protection
    * @param {string} [options.scope='repo,read:user,user:email'] Full repository and user scope
+   * @param {string} [options.codeChallenge] Optional PKCE code challenge
+   * @param {string} [options.codeChallengeMethod='S256'] PKCE code challenge method
    * @returns {string} Complete GitHub authorization URL
    */
-  getAuthorizationUrl({ redirectUri, state, scope = 'repo,read:user,user:email' }) {
+  getAuthorizationUrl({
+    redirectUri,
+    state,
+    scope = 'repo,read:user,user:email',
+    codeChallenge = null,
+    codeChallengeMethod = 'S256'
+  }) {
     const params = new URLSearchParams({
       client_id: this.clientId,
       redirect_uri: redirectUri,
       scope,
       state
     });
+    if (codeChallenge) {
+      params.set('code_challenge', codeChallenge);
+      params.set('code_challenge_method', codeChallengeMethod);
+    }
     return `${this.baseUrl}/login/oauth/authorize?${params.toString()}`;
   }
 
@@ -156,9 +179,10 @@ class GitHubAuth {
    * @param {string} options.code Authorization code received on callback
    * @param {string} options.redirectUri Redirect URI used in initial request
    * @param {string} [options.clientSecret] Optional OAuth App Client Secret
+   * @param {string} [options.codeVerifier] Optional PKCE code verifier
    * @returns {Promise<{accessToken: string, tokenType: string, scope: string}>}
    */
-  async exchangeCodeForToken({ code, redirectUri, clientSecret = null }) {
+  async exchangeCodeForToken({ code, redirectUri, clientSecret = null, codeVerifier = null }) {
     const url = `${this.baseUrl}/login/oauth/access_token`;
     const payload = {
       client_id: this.clientId,
@@ -167,6 +191,9 @@ class GitHubAuth {
     };
     if (clientSecret) {
       payload.client_secret = clientSecret;
+    }
+    if (codeVerifier) {
+      payload.code_verifier = codeVerifier;
     }
 
     const response = await fetch(url, {

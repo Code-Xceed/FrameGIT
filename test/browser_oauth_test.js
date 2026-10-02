@@ -20,12 +20,19 @@ test('GitHub 1-Click Browser OAuth Architecture & Storage', async (t) => {
     } catch (_) {}
   });
 
-  await t.test('1. Generates official GitHub authorization URL with full repo scope', () => {
+  await t.test('1. Generates official GitHub authorization URL with full repo scope and PKCE', () => {
     const auth = new GitHubAuth({ clientId: 'test-client-123' });
+    const pkce = GitHubAuth.generatePkce();
+    assert.ok(pkce.verifier && pkce.verifier.length > 20);
+    assert.ok(pkce.challenge && pkce.challenge.length > 20);
+    assert.strictEqual(pkce.method, 'S256');
+
     const url = auth.getAuthorizationUrl({
       redirectUri: 'http://127.0.0.1:41793/oauth/callback',
       state: 'secret-state-xyz',
-      scope: 'repo,read:user,user:email'
+      scope: 'repo,read:user,user:email',
+      codeChallenge: pkce.challenge,
+      codeChallengeMethod: pkce.method
     });
 
     assert.ok(url.startsWith('https://github.com/login/oauth/authorize?'));
@@ -34,6 +41,8 @@ test('GitHub 1-Click Browser OAuth Architecture & Storage', async (t) => {
     assert.strictEqual(parsed.searchParams.get('redirect_uri'), 'http://127.0.0.1:41793/oauth/callback');
     assert.strictEqual(parsed.searchParams.get('state'), 'secret-state-xyz');
     assert.strictEqual(parsed.searchParams.get('scope'), 'repo,read:user,user:email');
+    assert.strictEqual(parsed.searchParams.get('code_challenge'), pkce.challenge);
+    assert.strictEqual(parsed.searchParams.get('code_challenge_method'), 'S256');
   });
 
   await t.test('2. UserStore safely persists Client ID and encrypts Client Secret in vault', () => {

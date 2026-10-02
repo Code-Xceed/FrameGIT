@@ -219,6 +219,33 @@ class DesktopServer {
             return;
           }
 
+          if (pathname === '/api/setup/start-oauth' && req.method === 'POST') {
+            const userStore = getDefaultUserStore();
+            const ghConfig = userStore.getGitHubConfig();
+            const auth = new GitHubAuth({ clientId: ghConfig.clientId });
+            const crypto = require('node:crypto');
+            const pkce = GitHubAuth.generatePkce();
+            const state = crypto.randomUUID();
+            const redirectUri = `http://127.0.0.1:${this.port}/oauth/callback`;
+            const authUrl = auth.getAuthorizationUrl({
+              redirectUri,
+              state,
+              scope: 'repo,read:user,user:email',
+              codeChallenge: pkce.challenge,
+              codeChallengeMethod: pkce.method
+            });
+
+            this.pendingOAuth.set(state, {
+              verifier: pkce.verifier,
+              resolve: () => {},
+              reject: () => {}
+            });
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ authUrl, state }));
+            return;
+          }
+
           // 3c. GitHub 1-Click Browser OAuth Callback Receiver
           if (pathname === '/oauth/callback' && req.method === 'GET') {
             const code = url.searchParams.get('code');
@@ -248,11 +275,14 @@ class DesktopServer {
               const ghConfig = userStore.getGitHubConfig();
               const auth = new GitHubAuth({ clientId: ghConfig.clientId });
               const redirectUri = `http://127.0.0.1:${this.port}/oauth/callback`;
+              const pending = this.pendingOAuth.get(stateParam);
+              const codeVerifier = pending ? pending.verifier : null;
 
               const tokenData = await auth.exchangeCodeForToken({
                 code,
                 redirectUri,
-                clientSecret: ghConfig.clientSecret
+                clientSecret: ghConfig.clientSecret,
+                codeVerifier
               });
 
               const client = new GitHubApiClient({ token: tokenData.accessToken });
@@ -691,12 +721,15 @@ async function main() {
           const ghConfig = userStore.getGitHubConfig();
           const auth = new GitHubAuth({ clientId: ghConfig.clientId });
           const crypto = require('node:crypto');
+          const pkce = GitHubAuth.generatePkce();
           const state = crypto.randomUUID();
           const redirectUri = `http://127.0.0.1:${server.port}/oauth/callback`;
           const authUrl = auth.getAuthorizationUrl({
             redirectUri,
             state,
-            scope: 'repo,read:user,user:email'
+            scope: 'repo,read:user,user:email',
+            codeChallenge: pkce.challenge,
+            codeChallengeMethod: pkce.method
           });
 
           let resolveCb, rejectCb;
@@ -711,6 +744,7 @@ async function main() {
           }, 300000);
 
           server.pendingOAuth.set(state, {
+            verifier: pkce.verifier,
             resolve: (res) => { clearTimeout(timer); resolveCb(res); },
             reject: (err) => { clearTimeout(timer); rejectCb(err); }
           });
