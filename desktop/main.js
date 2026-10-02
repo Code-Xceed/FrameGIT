@@ -14,7 +14,9 @@ const { VersionEngine } = require('../core/version_engine');
 const { VisualDiff } = require('../core/visual_diff');
 const { SyncEngine } = require('../core/sync_engine');
 const { CloudClient } = require('../core/cloud_client');
+const { GitHubApiClient } = require('../core/github_sync');
 const { safeJsonParse } = require('../core/errors');
+const { getDefaultUserStore } = require('./user_store');
 
 class DesktopServer {
   constructor(port = 41793) {
@@ -110,8 +112,98 @@ class DesktopServer {
             const body = await this._readBody(req);
             const parsed = safeJsonParse(body, 'startup config');
             const ok = ProcessMonitor.configureWindowsStartup(parsed.enable !== false);
+            const userStore = getDefaultUserStore();
+            userStore.updateSettings({ autoStartBackgroundService: parsed.enable !== false });
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: ok }));
+            return;
+          }
+
+          // 3b. First-Run Setup & Local-First User Store Endpoints
+          if (pathname === '/api/setup/status' && req.method === 'GET') {
+            const userStore = getDefaultUserStore();
+            const settings = userStore.getSettings();
+            const auth = userStore.getGitHubAuth();
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              isSetupCompleted: userStore.isSetupCompleted(),
+              settings,
+              auth: {
+                hasToken: auth.hasToken,
+                user: auth.user
+              }
+            }));
+            return;
+          }
+
+          if (pathname === '/api/setup/verify-github' && req.method === 'POST') {
+            const body = await this._readBody(req);
+            const parsed = safeJsonParse(body, 'verify github request');
+            const token = (parsed.token || '').trim();
+            if (!token) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ valid: false, error: 'Token is required' }));
+              return;
+            }
+            try {
+              const client = new GitHubApiClient({ token });
+              const userRes = await client._request('GET', '/user');
+              if (!userRes || !userRes.login) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ valid: false, error: 'Failed to authenticate with GitHub' }));
+                return;
+              }
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({
+                valid: true,
+                user: {
+                  login: userRes.login,
+                  name: userRes.name || userRes.login,
+                  email: userRes.email || null,
+                  avatar_url: userRes.avatar_url || null,
+                  public_repos: userRes.public_repos || 0
+                }
+              }));
+            } catch (err) {
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ valid: false, error: err.message }));
+            }
+            return;
+          }
+
+          if (pathname === '/api/setup/save-github' && req.method === 'POST') {
+            const body = await this._readBody(req);
+            const parsed = safeJsonParse(body, 'save github request');
+            const userStore = getDefaultUserStore();
+            userStore.saveGitHubAuth(parsed || {});
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true }));
+            return;
+          }
+
+          if (pathname === '/api/setup/skip-github' && req.method === 'POST') {
+            const userStore = getDefaultUserStore();
+            userStore.clearGitHubAuth();
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true }));
+            return;
+          }
+
+          if (pathname === '/api/setup/complete' && req.method === 'POST') {
+            const body = await this._readBody(req);
+            const parsed = safeJsonParse(body, 'complete setup request');
+            const userStore = getDefaultUserStore();
+            userStore.completeSetup(parsed || {});
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true }));
+            return;
+          }
+
+          if (pathname === '/api/setup/reset' && req.method === 'POST') {
+            const userStore = getDefaultUserStore();
+            userStore.resetSetup();
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true }));
             return;
           }
 
@@ -289,11 +381,113 @@ async function main() {
   await server.start();
   console.log(`FrameGit Desktop running at http://127.0.0.1:41793/`);
 
-  // If running inside Electron, launch BrowserWindow
+  // If running inside Electron, launch BrowserWindow and register IPC bridge
   if (process.versions.electron) {
     try {
       const electron = require('electron');
-      const { app, BrowserWindow, Tray, Menu } = electron;
+      const { app, BrowserWindow, Tray, Menu, ipcMain, shell } = electron;
+
+      function registerIpcHandlers() {
+        const userStore = getDefaultUserStore();
+        const nleDetector = new NleDetector();
+
+        ipcMain.handle('setup:getStatus', async () => {
+          const settings = userStore.getSettings();
+          const auth = userStore.getGitHubAuth();
+          return {
+            isSetupCompleted: userStore.isSetupCompleted(),
+            settings,
+            auth: {
+              hasToken: auth.hasToken,
+              user: auth.user
+            }
+          };
+        });
+
+        ipcMain.handle('github:verifyToken', async (event, token) => {
+          const cleanToken = (token || '').trim();
+          if (!cleanToken) return { valid: false, error: 'Token is required' };
+          try {
+            const client = new GitHubApiClient({ token: cleanToken });
+            const userRes = await client._request('GET', '/user');
+            if (!userRes || !userRes.login) {
+              return { valid: false, error: 'Invalid response from GitHub API' };
+            }
+            return {
+              valid: true,
+              user: {
+                login: userRes.login,
+                name: userRes.name || userRes.login,
+                email: userRes.email || null,
+                avatar_url: userRes.avatar_url || null,
+                public_repos: userRes.public_repos || 0
+              }
+            };
+          } catch (err) {
+            return { valid: false, error: err.message };
+          }
+        });
+
+        ipcMain.handle('github:saveConfig', async (event, config) => {
+          userStore.saveGitHubAuth(config || {});
+          return { success: true };
+        });
+
+        ipcMain.handle('github:skipConfig', async () => {
+          userStore.clearGitHubAuth();
+          return { success: true };
+        });
+
+        ipcMain.handle('nle:detect', async () => {
+          return nleDetector.detectAll();
+        });
+
+        ipcMain.handle('nle:installPlugin', async (event, family) => {
+          try {
+            if (family === 'premiere') {
+              const res = nleDetector.installPremierePlugin();
+              const cur = userStore.getSettings().plugins || {};
+              userStore.updateSettings({ plugins: { ...cur, premiere: true } });
+              return { success: true, message: 'Adobe Premiere Pro UXP plugin installed successfully', details: res };
+            } else if (family === 'resolve') {
+              const res = nleDetector.installResolveScript();
+              const cur = userStore.getSettings().plugins || {};
+              userStore.updateSettings({ plugins: { ...cur, resolve: true } });
+              return { success: true, message: 'DaVinci Resolve scripting bridge installed successfully', details: res };
+            } else {
+              return { success: false, error: `Unsupported editor family: ${family}` };
+            }
+          } catch (err) {
+            return { success: false, error: err.message };
+          }
+        });
+
+        ipcMain.handle('service:configureStartup', async (event, enable) => {
+          const ok = ProcessMonitor.configureWindowsStartup(enable !== false);
+          userStore.updateSettings({ autoStartBackgroundService: enable !== false });
+          return { success: ok };
+        });
+
+        ipcMain.handle('setup:complete', async (event, options) => {
+          userStore.completeSetup(options || {});
+          return { success: true };
+        });
+
+        ipcMain.handle('setup:reset', async () => {
+          userStore.resetSetup();
+          return { success: true };
+        });
+
+        ipcMain.handle('shell:openExternal', async (event, url) => {
+          if (url && (url.startsWith('https://') || url.startsWith('http://'))) {
+            await shell.openExternal(url);
+            return { success: true };
+          }
+          return { success: false, error: 'Invalid URL' };
+        });
+      }
+
+      registerIpcHandlers();
 
       app.whenReady().then(() => {
         const win = new BrowserWindow({
@@ -302,8 +496,9 @@ async function main() {
           minWidth: 900,
           minHeight: 600,
           title: 'FrameGit Desktop',
-          backgroundColor: '#181818',
+          backgroundColor: '#0d1117',
           webPreferences: {
+            preload: path.join(__dirname, 'preload.js'),
             nodeIntegration: false,
             contextIsolation: true
           }
