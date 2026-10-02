@@ -19,6 +19,16 @@ const { GitHubAuth } = require('../core/github_auth');
 const { safeJsonParse } = require('../core/errors');
 const { getDefaultUserStore } = require('./user_store');
 
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 class DesktopServer {
   constructor(port = 41793) {
     this.port = port;
@@ -26,6 +36,7 @@ class DesktopServer {
     this.nleDetector = new NleDetector();
     this.projectCatalog = new ProjectCatalog();
     this.processMonitor = new ProcessMonitor({ intervalMs: 5000 });
+    this.pendingOAuth = new Map();
 
     let staticDir = path.join(__dirname, 'renderer');
     if (!fs.existsSync(staticDir)) {
@@ -208,6 +219,86 @@ class DesktopServer {
             return;
           }
 
+          // 3c. GitHub 1-Click Browser OAuth Callback Receiver
+          if (pathname === '/oauth/callback' && req.method === 'GET') {
+            const code = url.searchParams.get('code');
+            const stateParam = url.searchParams.get('state');
+            const errorParam = url.searchParams.get('error');
+            const errorDesc = url.searchParams.get('error_description') || errorParam;
+
+            if (errorParam) {
+              if (stateParam && this.pendingOAuth.has(stateParam)) {
+                const pending = this.pendingOAuth.get(stateParam);
+                this.pendingOAuth.delete(stateParam);
+                pending.reject(new Error(errorDesc || 'OAuth authorization cancelled'));
+              }
+              res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+              res.end(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>FrameGit — Cancelled</title><style>body{background:#090a0f;color:#f4f4f6;font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center;}.box{background:#111318;border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:40px;max-width:420px;}h2{color:#f85149;margin:0 0 10px 0;font-size:20px;}p{color:#8e929f;font-size:13px;}</style></head><body><div class="box"><h2>Authorization Cancelled</h2><p>${escapeHtml(errorDesc || 'The authorization request was cancelled.')}</p></div></body></html>`);
+              return;
+            }
+
+            if (!code || !stateParam) {
+              res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
+              res.end(`Missing code or state parameter`);
+              return;
+            }
+
+            try {
+              const userStore = getDefaultUserStore();
+              const ghConfig = userStore.getGitHubConfig();
+              const auth = new GitHubAuth({ clientId: ghConfig.clientId });
+              const redirectUri = `http://127.0.0.1:${this.port}/oauth/callback`;
+
+              const tokenData = await auth.exchangeCodeForToken({
+                code,
+                redirectUri,
+                clientSecret: ghConfig.clientSecret
+              });
+
+              const client = new GitHubApiClient({ token: tokenData.accessToken });
+              const userRes = await client._request('GET', '/user');
+              if (!userRes || !userRes.login) {
+                throw new Error('Failed to retrieve user profile from GitHub API');
+              }
+
+              userStore.saveGitHubAuth({
+                token: tokenData.accessToken,
+                username: userRes.login,
+                name: userRes.name || userRes.login,
+                email: userRes.email || null,
+                avatarUrl: userRes.avatar_url || null
+              });
+
+              if (this.pendingOAuth.has(stateParam)) {
+                const pending = this.pendingOAuth.get(stateParam);
+                this.pendingOAuth.delete(stateParam);
+                pending.resolve({
+                  success: true,
+                  user: {
+                    login: userRes.login,
+                    name: userRes.name || userRes.login,
+                    email: userRes.email || null,
+                    avatar_url: userRes.avatar_url || null,
+                    public_repos: userRes.public_repos || 0
+                  }
+                });
+              }
+
+              res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+              res.end(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>FrameGit — Authorized</title><style>body{background:#090a0f;color:#f4f4f6;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center;}.box{background:#111318;border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:40px;max-width:420px;box-shadow:0 24px 60px rgba(0,0,0,0.5);}.icon{width:52px;height:52px;border-radius:50%;background:rgba(63,185,80,0.15);color:#3fb950;display:inline-flex;align-items:center;justify-content:center;font-size:24px;margin-bottom:20px;}h2{margin:0 0 10px 0;font-size:20px;font-weight:600;}p{color:#8e929f;font-size:13px;line-height:1.5;margin:0;}</style></head><body><div class="box"><div class="icon">✓</div><h2>FrameGit Authorized</h2><p>Your GitHub account has been connected securely. You can close this browser tab and return to the FrameGit Desktop app.</p></div></body></html>`);
+              return;
+            } catch (err) {
+              if (this.pendingOAuth.has(stateParam)) {
+                const pending = this.pendingOAuth.get(stateParam);
+                this.pendingOAuth.delete(stateParam);
+                pending.reject(err);
+              }
+              res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+              res.end(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>FrameGit — Error</title><style>body{background:#090a0f;color:#f4f4f6;font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center;}.box{background:#111318;border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:40px;max-width:420px;}h2{color:#f85149;margin:0 0 10px 0;}p{color:#8e929f;font-size:13px;}</style></head><body><div class="box"><h2>Authentication Failed</h2><p>${escapeHtml(err.message)}</p></div></body></html>`);
+              return;
+            }
+          }
+
           // 4. Visual Diff Rendering
           if (pathname === '/api/desktop/diff/ascii' && req.method === 'GET') {
             const pPath = url.searchParams.get('projectPath');
@@ -388,7 +479,7 @@ async function main() {
       const electron = require('electron');
       const { app, BrowserWindow, Tray, Menu, ipcMain, shell } = electron;
 
-      function registerIpcHandlers() {
+      function registerIpcHandlers(server) {
         const userStore = getDefaultUserStore();
         const nleDetector = new NleDetector();
 
@@ -585,142 +676,6 @@ async function main() {
           return { success: true };
         });
 
-        // Project Catalog & Workspace Actions
-        ipcMain.handle('projects:list', async () => {
-          const catalog = new ProjectCatalog();
-          return catalog.list();
-        });
-
-        ipcMain.handle('projects:pickFolder', async () => {
-          const { dialog } = require('electron');
-          const res = await dialog.showOpenDialog({
-            title: 'Select Video Editing Project Folder',
-            properties: ['openDirectory']
-          });
-          if (res.canceled || !res.filePaths || res.filePaths.length === 0) {
-            return { canceled: true };
-          }
-          return { canceled: false, path: res.filePaths[0] };
-        });
-
-        ipcMain.handle('projects:track', async (event, projectPath, meta) => {
-          const cleanPath = path.resolve(projectPath);
-          const catalog = new ProjectCatalog();
-          const framegitDir = path.join(cleanPath, '.FrameGIT');
-          const altDir = path.join(cleanPath, '.framegit');
-          if (!fs.existsSync(framegitDir) && !fs.existsSync(altDir)) {
-            let files = [];
-            try { files = fs.readdirSync(cleanPath); } catch (_) {}
-            const prj = files.find(f => f.endsWith('.prproj') || f.endsWith('.drp')) || 'project.prproj';
-            const engine = new VersionEngine(cleanPath, prj);
-            engine.init();
-          }
-          const entry = catalog.register(cleanPath, meta || {});
-          return { success: true, project: entry };
-        });
-
-        ipcMain.handle('projects:getDetails', async (event, projectPath) => {
-          const cleanPath = path.resolve(projectPath);
-          let files = [];
-          try { files = fs.readdirSync(cleanPath); } catch (_) {}
-          const prj = files.find(f => f.endsWith('.prproj') || f.endsWith('.drp')) || 'project.prproj';
-          const engine = new VersionEngine(cleanPath, prj);
-          engine.open();
-          const status = engine.status();
-          const branches = engine.listBranches();
-          const history = engine.log(20);
-          return { status, branches, history };
-        });
-
-        ipcMain.handle('projects:commit', async (event, projectPath, message) => {
-          const cleanPath = path.resolve(projectPath);
-          let files = [];
-          try { files = fs.readdirSync(cleanPath); } catch (_) {}
-          const prj = files.find(f => f.endsWith('.prproj') || f.endsWith('.drp')) || 'project.prproj';
-          const engine = new VersionEngine(cleanPath, prj);
-          engine.open();
-          const res = await engine.commit(message || 'Timeline checkpoint');
-          const catalog = new ProjectCatalog();
-          catalog.register(cleanPath, {
-            headCommit: res.commitHash,
-            lastMessage: message,
-            currentBranch: res.branch
-          });
-          return res;
-        });
-
-        ipcMain.handle('projects:revert', async (event, projectPath, commitHash, force) => {
-          const cleanPath = path.resolve(projectPath);
-          let files = [];
-          try { files = fs.readdirSync(cleanPath); } catch (_) {}
-          const prj = files.find(f => f.endsWith('.prproj') || f.endsWith('.drp')) || 'project.prproj';
-          const engine = new VersionEngine(cleanPath, prj);
-          engine.open();
-          engine.rollback(commitHash, force !== false);
-          return { success: true, commitHash };
-        });
-
-        ipcMain.handle('projects:createBranch', async (event, projectPath, name) => {
-          const cleanPath = path.resolve(projectPath);
-          let files = [];
-          try { files = fs.readdirSync(cleanPath); } catch (_) {}
-          const prj = files.find(f => f.endsWith('.prproj') || f.endsWith('.drp')) || 'project.prproj';
-          const engine = new VersionEngine(cleanPath, prj);
-          engine.open();
-          engine.createBranch(name);
-          return { success: true, name };
-        });
-
-        ipcMain.handle('projects:switchBranch', async (event, projectPath, name, force) => {
-          const cleanPath = path.resolve(projectPath);
-          let files = [];
-          try { files = fs.readdirSync(cleanPath); } catch (_) {}
-          const prj = files.find(f => f.endsWith('.prproj') || f.endsWith('.drp')) || 'project.prproj';
-          const engine = new VersionEngine(cleanPath, prj);
-          engine.open();
-          const res = engine.switchBranch(name, force || false);
-          const catalog = new ProjectCatalog();
-          catalog.register(cleanPath, { currentBranch: name });
-          return res;
-        });
-
-        ipcMain.handle('projects:push', async (event, projectPath) => {
-          const cleanPath = path.resolve(projectPath);
-          let files = [];
-          try { files = fs.readdirSync(cleanPath); } catch (_) {}
-          const prj = files.find(f => f.endsWith('.prproj') || f.endsWith('.drp')) || 'project.prproj';
-          const engine = new VersionEngine(cleanPath, prj);
-          engine.open();
-          const currentBranch = engine.getCurrentBranch() || 'main';
-          if (engine.config && engine.config.cloud) {
-            const cloudClient = new CloudClient(engine.config.cloud);
-            const syncEngine = new SyncEngine(cleanPath, cloudClient, engine.db);
-            return await syncEngine.push(currentBranch);
-          }
-          return { pushed: true, branch: currentBranch, localOnly: true };
-        });
-
-        ipcMain.handle('projects:pull', async (event, projectPath) => {
-          const cleanPath = path.resolve(projectPath);
-          let files = [];
-          try { files = fs.readdirSync(cleanPath); } catch (_) {}
-          const prj = files.find(f => f.endsWith('.prproj') || f.endsWith('.drp')) || 'project.prproj';
-          const engine = new VersionEngine(cleanPath, prj);
-          engine.open();
-          const currentBranch = engine.getCurrentBranch() || 'main';
-          if (engine.config && engine.config.cloud) {
-            const cloudClient = new CloudClient(engine.config.cloud);
-            const syncEngine = new SyncEngine(cleanPath, cloudClient, engine.db);
-            return await syncEngine.pull(currentBranch);
-          }
-          return { pulled: true, branch: currentBranch, localOnly: true };
-        });
-
-        ipcMain.handle('system:getRunningEditors', async () => {
-          const monitor = new ProcessMonitor();
-          return monitor.poll();
-        });
-
         ipcMain.handle('shell:openExternal', async (event, url) => {
           if (url && (url.startsWith('https://') || url.startsWith('http://'))) {
             await shell.openExternal(url);
@@ -728,9 +683,82 @@ async function main() {
           }
           return { success: false, error: 'Invalid URL' };
         });
+
+        // 1-Click Official Browser OAuth Handlers
+        let activeBrowserOAuth = null;
+
+        ipcMain.handle('github:startBrowserOAuth', async () => {
+          const ghConfig = userStore.getGitHubConfig();
+          const auth = new GitHubAuth({ clientId: ghConfig.clientId });
+          const crypto = require('node:crypto');
+          const state = crypto.randomUUID();
+          const redirectUri = `http://127.0.0.1:${server.port}/oauth/callback`;
+          const authUrl = auth.getAuthorizationUrl({
+            redirectUri,
+            state,
+            scope: 'repo,read:user,user:email'
+          });
+
+          let resolveCb, rejectCb;
+          const resultPromise = new Promise((resolve, reject) => {
+            resolveCb = resolve;
+            rejectCb = reject;
+          });
+
+          const timer = setTimeout(() => {
+            server.pendingOAuth.delete(state);
+            rejectCb(new Error('Browser authorization timed out (5 minutes).'));
+          }, 300000);
+
+          server.pendingOAuth.set(state, {
+            resolve: (res) => { clearTimeout(timer); resolveCb(res); },
+            reject: (err) => { clearTimeout(timer); rejectCb(err); }
+          });
+
+          activeBrowserOAuth = { state, resultPromise };
+
+          await shell.openExternal(authUrl);
+
+          return { started: true, state, authUrl };
+        });
+
+        ipcMain.handle('github:waitForBrowserOAuth', async (event, state) => {
+          if (!activeBrowserOAuth || (state && activeBrowserOAuth.state !== state)) {
+            return { success: false, error: 'No active browser OAuth session' };
+          }
+          try {
+            const res = await activeBrowserOAuth.resultPromise;
+            activeBrowserOAuth = null;
+            return res;
+          } catch (err) {
+            activeBrowserOAuth = null;
+            return { success: false, error: err.message };
+          }
+        });
+
+        ipcMain.handle('github:cancelBrowserOAuth', async (event, state) => {
+          if (activeBrowserOAuth) {
+            const st = state || activeBrowserOAuth.state;
+            if (server.pendingOAuth.has(st)) {
+              const pending = server.pendingOAuth.get(st);
+              server.pendingOAuth.delete(st);
+              pending.reject(new Error('Cancelled by user'));
+            }
+            activeBrowserOAuth = null;
+          }
+          return { success: true };
+        });
+
+        ipcMain.handle('github:getOAuthConfig', async () => {
+          return userStore.getGitHubConfig();
+        });
+
+        ipcMain.handle('github:setOAuthConfig', async (event, config) => {
+          return userStore.setGitHubConfig(config || {});
+        });
       }
 
-      registerIpcHandlers();
+      registerIpcHandlers(server);
 
       app.whenReady().then(() => {
         const win = new BrowserWindow({

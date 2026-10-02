@@ -38,6 +38,9 @@ const DEFAULT_SETTINGS = {
     premiere: false,
     resolve: false
   },
+  github: {
+    clientId: 'Iv23liFrameGitDefaultApp'
+  },
   trackedProjects: [],
   recentProjects: []
 };
@@ -183,6 +186,44 @@ class UserStore {
         avatarUrl: null
       }
     });
+  }
+
+  /**
+   * Get GitHub OAuth application configuration.
+   * @returns {{ clientId: string, hasSecret: boolean, clientSecret: string|null }}
+   */
+  getGitHubConfig() {
+    const settings = this.getSettings();
+    const clientSecret = this.vault.getSecret('github.clientSecret');
+    return {
+      clientId: (settings.github && settings.github.clientId) || 'Iv23liFrameGitDefaultApp',
+      hasSecret: Boolean(clientSecret),
+      clientSecret: clientSecret || null
+    };
+  }
+
+  /**
+   * Set GitHub OAuth application configuration.
+   * @param {Object} config
+   * @param {string} [config.clientId]
+   * @param {string} [config.clientSecret]
+   */
+  setGitHubConfig({ clientId, clientSecret }) {
+    if (clientSecret !== undefined) {
+      if (clientSecret) {
+        this.vault.setSecret('github.clientSecret', clientSecret.trim());
+      } else {
+        this.vault.deleteSecret('github.clientSecret');
+      }
+    }
+    if (clientId) {
+      this.updateSettings({
+        github: {
+          clientId: clientId.trim()
+        }
+      });
+    }
+    return this.getGitHubConfig();
   }
 
   /**

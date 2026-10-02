@@ -2,8 +2,8 @@
  * FrameGit Desktop — Electron Preload Script
  * 
  * Securely bridges renderer process to main process via contextIsolation.
- * Exposes the `window.framegit` API for local-first configuration,
- * GitHub OAuth, credentials vault, project tracking, and NLE version control.
+ * Exposes the `window.framegit` API for 1-Click Browser OAuth,
+ * credentials vault, and creative editor integrations.
  */
 
 'use strict';
@@ -16,7 +16,14 @@ contextBridge.exposeInMainWorld('framegit', {
   completeSetup: (options) => ipcRenderer.invoke('setup:complete', options),
   resetSetup: () => ipcRenderer.invoke('setup:reset'),
 
-  // GitHub OAuth & Vault
+  // 1-Click Browser OAuth (Official GitHub Authorization)
+  startBrowserOAuth: () => ipcRenderer.invoke('github:startBrowserOAuth'),
+  waitForBrowserOAuth: (state) => ipcRenderer.invoke('github:waitForBrowserOAuth', state),
+  cancelBrowserOAuth: (state) => ipcRenderer.invoke('github:cancelBrowserOAuth', state),
+  getOAuthConfig: () => ipcRenderer.invoke('github:getOAuthConfig'),
+  setOAuthConfig: (config) => ipcRenderer.invoke('github:setOAuthConfig', config),
+
+  // Device Code OAuth & Manual Verification Fallbacks
   startGitHubOAuth: (options) => ipcRenderer.invoke('github:startOAuth', options),
   waitForGitHubOAuth: () => ipcRenderer.invoke('github:waitForOAuth'),
   cancelGitHubOAuth: () => ipcRenderer.invoke('github:cancelOAuth'),
@@ -27,19 +34,6 @@ contextBridge.exposeInMainWorld('framegit', {
   // Creative Editor Integrations
   detectEditors: () => ipcRenderer.invoke('nle:detect'),
   installPlugin: (family) => ipcRenderer.invoke('nle:installPlugin', family),
-  getRunningEditors: () => ipcRenderer.invoke('system:getRunningEditors'),
-
-  // Project Catalog & Workspace Actions
-  listProjects: () => ipcRenderer.invoke('projects:list'),
-  pickProjectFolder: () => ipcRenderer.invoke('projects:pickFolder'),
-  trackProject: (path, meta) => ipcRenderer.invoke('projects:track', path, meta),
-  getProjectDetails: (path) => ipcRenderer.invoke('projects:getDetails', path),
-  commitProject: (path, message) => ipcRenderer.invoke('projects:commit', path, message),
-  revertProject: (path, hash, force) => ipcRenderer.invoke('projects:revert', path, hash, force),
-  createBranch: (path, name) => ipcRenderer.invoke('projects:createBranch', path, name),
-  switchBranch: (path, name, force) => ipcRenderer.invoke('projects:switchBranch', path, name, force),
-  pushProject: (path) => ipcRenderer.invoke('projects:push', path),
-  pullProject: (path) => ipcRenderer.invoke('projects:pull', path),
 
   // Background Watcher & Auto-Start Service
   configureStartup: (enable) => ipcRenderer.invoke('service:configureStartup', enable),

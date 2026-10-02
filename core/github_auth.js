@@ -131,6 +131,72 @@ class GitHubAuth {
 
     throw new CloudAuthError('GitHub', 'OAuth device authorization timed out.');
   }
+
+  /**
+   * Step 3: Build Web Browser Authorization URL (1-Click Browser OAuth).
+   * @param {Object} options
+   * @param {string} options.redirectUri e.g. 'http://127.0.0.1:41793/oauth/callback'
+   * @param {string} options.state Cryptographic random state for CSRF protection
+   * @param {string} [options.scope='repo,read:user,user:email'] Full repository and user scope
+   * @returns {string} Complete GitHub authorization URL
+   */
+  getAuthorizationUrl({ redirectUri, state, scope = 'repo,read:user,user:email' }) {
+    const params = new URLSearchParams({
+      client_id: this.clientId,
+      redirect_uri: redirectUri,
+      scope,
+      state
+    });
+    return `${this.baseUrl}/login/oauth/authorize?${params.toString()}`;
+  }
+
+  /**
+   * Step 4: Exchange Authorization Code for Access Token.
+   * @param {Object} options
+   * @param {string} options.code Authorization code received on callback
+   * @param {string} options.redirectUri Redirect URI used in initial request
+   * @param {string} [options.clientSecret] Optional OAuth App Client Secret
+   * @returns {Promise<{accessToken: string, tokenType: string, scope: string}>}
+   */
+  async exchangeCodeForToken({ code, redirectUri, clientSecret = null }) {
+    const url = `${this.baseUrl}/login/oauth/access_token`;
+    const payload = {
+      client_id: this.clientId,
+      code,
+      redirect_uri: redirectUri
+    };
+    if (clientSecret) {
+      payload.client_secret = clientSecret;
+    }
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => '');
+      throw new NetworkError('exchangeCodeForToken', `OAuth token exchange failed (${response.status}): ${errText}`);
+    }
+
+    const data = await response.json();
+    if (data.error) {
+      throw new CloudAuthError('GitHub', `OAuth exchange error: ${data.error_description || data.error}`);
+    }
+    if (!data.access_token) {
+      throw new CloudAuthError('GitHub', 'No access token received from GitHub OAuth exchange.');
+    }
+
+    return {
+      accessToken: data.access_token,
+      tokenType: data.token_type || 'bearer',
+      scope: data.scope || ''
+    };
+  }
 }
 
 module.exports = {
