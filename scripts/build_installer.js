@@ -64,24 +64,40 @@ function buildInstaller() {
     throw new Error(`Resolve script not found at: ${resolveScript}`);
   }
 
-  // 1. Stage distribution files
-  console.log('\n[1/4] Staging installer payload...');
+  // 1. Package native Electron desktop application
+  console.log('\n[1/4] Packaging native desktop application...');
+  const { packageDesktop } = require('./package_desktop');
+  const desktopAppDir = packageDesktop();
+
+  // Stage distribution files
   if (fs.existsSync(STAGING_DIR)) {
     fs.rmSync(STAGING_DIR, { recursive: true, force: true });
   }
   fs.mkdirSync(STAGING_DIR, { recursive: true });
 
-  fs.copyFileSync(framegitExe, path.join(STAGING_DIR, 'framegit.exe'));
-  fs.copyFileSync(premiereCcx, path.join(STAGING_DIR, 'FrameGit-Premiere.ccx'));
-  fs.copyFileSync(resolveScript, path.join(STAGING_DIR, 'framegit_resolve.py'));
+  console.log('[+] Copying desktop application into installer staging...');
+  copyRecursive(desktopAppDir, STAGING_DIR);
 
-  // Stage Desktop GUI files
-  const desktopSrc = path.join(ROOT_DIR, 'desktop');
-  if (fs.existsSync(desktopSrc)) {
-    copyRecursive(desktopSrc, path.join(STAGING_DIR, 'desktop'));
+  // Optimize payload size: remove dxcompiler.dll and unused locales
+  const dxCompiler = path.join(STAGING_DIR, 'dxcompiler.dll');
+  if (fs.existsSync(dxCompiler)) fs.unlinkSync(dxCompiler);
+  const chromiumLicenses = path.join(STAGING_DIR, 'LICENSES.chromium.html');
+  if (fs.existsSync(chromiumLicenses)) fs.unlinkSync(chromiumLicenses);
+  const localesDir = path.join(STAGING_DIR, 'locales');
+  if (fs.existsSync(localesDir)) {
+    const localeEntries = fs.readdirSync(localesDir);
+    for (const loc of localeEntries) {
+      if (!loc.startsWith('en-')) {
+        try { fs.unlinkSync(path.join(localesDir, loc)); } catch (_) {}
+      }
+    }
   }
 
-  console.log('  ✓ Staged framegit.exe, FrameGit-Premiere.ccx, framegit_resolve.py, and desktop GUI');
+  // Ensure timestamps are >= 1980 for ZIP format compatibility
+  const touchCmd = `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -Path '${STAGING_DIR}' -Recurse | ForEach-Object { $_.LastWriteTime = Get-Date }"`;
+  execSync(touchCmd, { stdio: 'ignore' });
+
+  console.log('  ✓ Staged complete native desktop application (FrameGit.exe, CLI, extensions, runtime)');
 
   // 2. Compress staging into payload.zip
   console.log('\n[2/4] Compressing staging payload into archive...');
@@ -111,7 +127,7 @@ function buildInstaller() {
   const cscArgs = [
     '/target:winexe',
     `/out:"${SETUP_EXE}"`,
-    '/platform:anycpu',
+    '/platform:x64',
     '/optimize+',
     refs,
     `/resource:"${PAYLOAD_ZIP}",payload.zip`,

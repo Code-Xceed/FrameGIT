@@ -32,5 +32,8 @@
   "dependencies": {
     "fast-xml-parser": "^5.11.2",
     "xmlbuilder2": "^4.0.3"
+  },
+  "devDependencies": {
+    "electron": "^44.5.1"
   }
 }

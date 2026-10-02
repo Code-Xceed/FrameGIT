@@ -205,10 +205,18 @@ namespace FrameGit.Installer
                                     btnInstall.Enabled = true;
                                     btnInstall.Click -= BtnInstall_Click;
                                     btnInstall.Click += (s, ev) => {
-                                        string exePath = Path.Combine(targetDir, "framegit.exe");
-                                        if (File.Exists(exePath))
+                                        string desktopExe = Path.Combine(targetDir, "FrameGit.exe");
+                                        if (File.Exists(desktopExe))
                                         {
-                                            Process.Start(new ProcessStartInfo(exePath, "desktop") { UseShellExecute = true });
+                                            Process.Start(new ProcessStartInfo(desktopExe) { UseShellExecute = true });
+                                        }
+                                        else
+                                        {
+                                            string cliExe = Path.Combine(targetDir, "framegit.exe");
+                                            if (File.Exists(cliExe))
+                                            {
+                                                Process.Start(new ProcessStartInfo(cliExe, "desktop") { UseShellExecute = true });
+                                            }
                                         }
                                         this.Close();
                                     };
@@ -287,21 +295,26 @@ namespace FrameGit.Installer
                 if (addToPath)
                 {
                     AddDirectoryToUserPath(targetDir);
+                    string binDir = Path.Combine(targetDir, "bin");
+                    if (Directory.Exists(binDir)) AddDirectoryToUserPath(binDir);
                 }
 
                 progress(75, "Creating shortcuts...");
-                string exePath = Path.Combine(targetDir, "framegit.exe");
-                if (createDesktop && File.Exists(exePath))
+                string desktopExe = Path.Combine(targetDir, "FrameGit.exe");
+                string launchTarget = File.Exists(desktopExe) ? desktopExe : Path.Combine(targetDir, "framegit.exe");
+                string launchArgs = File.Exists(desktopExe) ? "" : "desktop";
+
+                if (createDesktop && File.Exists(launchTarget))
                 {
                     string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
                     string lnk = Path.Combine(desktop, "FrameGit.lnk");
-                    CreateShortcut(lnk, exePath, "desktop", "FrameGit Desktop Application", targetDir);
+                    CreateShortcut(lnk, launchTarget, launchArgs, "FrameGit Desktop Application", targetDir);
                 }
 
                 // Start Menu shortcut
                 string startMenu = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs", "FrameGit");
                 if (!Directory.Exists(startMenu)) Directory.CreateDirectory(startMenu);
-                CreateShortcut(Path.Combine(startMenu, "FrameGit Desktop.lnk"), exePath, "desktop", "FrameGit Desktop", targetDir);
+                CreateShortcut(Path.Combine(startMenu, "FrameGit Desktop.lnk"), launchTarget, launchArgs, "FrameGit Desktop", targetDir);
                 CreateShortcut(Path.Combine(startMenu, "FrameGit CLI.lnk"), "powershell.exe", "-NoExit -Command \"Write-Host 'FrameGit CLI Ready.' -ForegroundColor Cyan; framegit --version\"", "FrameGit Terminal", targetDir);
 
                 if (autoPlugins)
