@@ -39,7 +39,7 @@ const DEFAULT_SETTINGS = {
     resolve: false
   },
   github: {
-    clientId: 'Iv23liFrameGitDefaultApp'
+    clientId: 'Ov23liEdxYDHJ3uGPzQv'
   },
   trackedProjects: [],
   recentProjects: []
@@ -196,7 +196,7 @@ class UserStore {
     const settings = this.getSettings();
     const clientSecret = this.vault.getSecret('github.clientSecret');
     return {
-      clientId: (settings.github && settings.github.clientId) || 'Iv23liFrameGitDefaultApp',
+      clientId: (settings.github && settings.github.clientId) || 'Ov23liEdxYDHJ3uGPzQv',
       hasSecret: Boolean(clientSecret),
       clientSecret: clientSecret || null
     };

@@ -11,7 +11,7 @@ const api = window.framegit || {
   startBrowserOAuth: async () => ({ started: false, error: 'Not available in browser mode' }),
   waitForBrowserOAuth: async () => ({ success: false, error: 'Not available in browser mode' }),
   cancelBrowserOAuth: async () => ({ success: true }),
-  getOAuthConfig: async () => ({ clientId: 'Iv23liFrameGitDefaultApp', hasSecret: false }),
+  getOAuthConfig: async () => ({ clientId: 'Ov23liEdxYDHJ3uGPzQv', hasSecret: false }),
   setOAuthConfig: async () => ({ success: true }),
   startGitHubOAuth: async (opts) => (await fetch('/api/setup/start-oauth', {
     method: 'POST',

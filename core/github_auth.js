@@ -9,8 +9,8 @@
 
 const { NetworkError, CloudAuthError } = require('./errors');
 
-// Default FrameGit public OAuth client ID (registered for FrameGit CLI)
-const DEFAULT_CLIENT_ID = 'Iv23liFrameGitDefaultApp';
+// Official FrameGit registered GitHub OAuth App Client ID
+const DEFAULT_CLIENT_ID = 'Ov23liEdxYDHJ3uGPzQv';
 
 class GitHubAuth {
   /**
