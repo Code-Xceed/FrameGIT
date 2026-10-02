@@ -99,10 +99,15 @@ class UserStore {
       }
       const raw = fs.readFileSync(this.settingsPath, 'utf8');
       const parsed = safeJsonParse(raw, 'settings.json');
-      return Object.assign({}, DEFAULT_SETTINGS, parsed, {
+      const res = Object.assign({}, DEFAULT_SETTINGS, parsed, {
         user: Object.assign({}, DEFAULT_SETTINGS.user, parsed.user || {}),
-        plugins: Object.assign({}, DEFAULT_SETTINGS.plugins, parsed.plugins || {})
+        plugins: Object.assign({}, DEFAULT_SETTINGS.plugins, parsed.plugins || {}),
+        github: Object.assign({}, DEFAULT_SETTINGS.github, parsed.github || {})
       });
+      if (!res.github.clientId || res.github.clientId === 'Iv23liFrameGitDefaultApp') {
+        res.github.clientId = 'Ov23liEdxYDHJ3uGPzQv';
+      }
+      return res;
     } catch (_) {
       return { ...DEFAULT_SETTINGS };
     }
@@ -195,8 +200,12 @@ class UserStore {
   getGitHubConfig() {
     const settings = this.getSettings();
     const clientSecret = this.vault.getSecret('github.clientSecret');
+    let clientId = settings.github && settings.github.clientId;
+    if (!clientId || clientId === 'Iv23liFrameGitDefaultApp') {
+      clientId = 'Ov23liEdxYDHJ3uGPzQv';
+    }
     return {
-      clientId: (settings.github && settings.github.clientId) || 'Ov23liEdxYDHJ3uGPzQv',
+      clientId,
       hasSecret: Boolean(clientSecret),
       clientSecret: clientSecret || null
     };
