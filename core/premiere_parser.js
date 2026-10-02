@@ -121,8 +121,7 @@ class PremiereParser {
         const clipName = String(getProp(item, 'Name') || 'Untitled Clip');
         const startT = String(getProp(item, 'Start') || '0');
         const inT = String(getProp(item, 'In') || '0');
-        const deterministicId = 'c_' + crypto.createHash('blake2s256')
-          .update(`${trackName}:${clipName}:${startT}:${inT}`).digest('hex').slice(0, 16);
+        const deterministicId = 'c_' + Hasher.hash(`${trackName}:${clipName}:${startT}:${inT}`).slice(0, 16);
 
         const clipObj = {
           id: String(rawId || deterministicId),
@@ -205,8 +204,7 @@ class PremiereParser {
       });
 
       for (const m of seq.markers || []) {
-        const markerFallback = 'm_' + crypto.createHash('blake2s256')
-          .update(`${m.name}:${m.timeTicks}:${m.comment}`).digest('hex').slice(0, 10);
+        const markerFallback = 'm_' + Hasher.hash(`${m.name}:${m.timeTicks}:${m.comment}`).slice(0, 10);
         seqNode.ele('Marker', {
           ObjectID: String(m.id || markerFallback),
           Name: String(m.name || ''),
@@ -218,8 +216,7 @@ class PremiereParser {
 
       for (const track of seq.tracks || []) {
         for (const clip of track.clips || []) {
-          const clipFallback = 'c_' + crypto.createHash('blake2s256')
-            .update(`${track.name}:${clip.name}:${clip.startTicks}:${clip.inPointTicks}`).digest('hex').slice(0, 10);
+          const clipFallback = 'c_' + Hasher.hash(`${track.name}:${clip.name}:${clip.startTicks}:${clip.inPointTicks}`).slice(0, 10);
           const itemNode = seqNode.ele('TrackItem', {
             ObjectID: String(clip.id || clipFallback),
             TrackIndex: String(track.index || 1),

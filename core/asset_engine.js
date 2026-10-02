@@ -102,7 +102,7 @@ class AssetEngine {
 
     const tempPath = destPath + `.${Date.now()}.${require('node:crypto').randomUUID()}.restore.tmp`;
     const writeStream = fs.createWriteStream(tempPath);
-    const fullHasher = require('node:crypto').createHash('blake2s256');
+    const fullHasher = Hasher.createHash();
 
     try {
       for (const chunkEntry of manifest.chunks) {

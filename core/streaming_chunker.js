@@ -6,7 +6,7 @@ const { Hasher } = require('./hasher');
 // 256 pre-computed 32-bit pseudo-random values with verified uniform distribution (Gear Matrix)
 const GEAR_TABLE = new Uint32Array(256);
 for (let i = 0; i < 256; i++) {
-  const hash = require('node:crypto').createHash('blake2s256').update(`FastCDC_Gear_Table_Seed_2026_${i}`).digest();
+  const hash = Hasher.createHash().update(`FastCDC_Gear_Table_Seed_2026_${i}`).digest();
   GEAR_TABLE[i] = hash.readUInt32LE(0);
 }
 
@@ -34,7 +34,7 @@ class StreamingChunker {
     let totalBytes = 0;
     let totalChunks = 0;
     let streamOffset = 0;
-    const fullHasher = require('node:crypto').createHash('blake2s256');
+    const fullHasher = Hasher.createHash();
 
     for await (const chunk of readableStream) {
       fullHasher.update(chunk);

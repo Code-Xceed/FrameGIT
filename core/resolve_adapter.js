@@ -149,8 +149,7 @@ class ResolveAdapter extends CreativeEditorAdapter {
             const clipName = String(getProp(item, 'Name') || 'Resolve Clip');
             const startT = String(getProp(item, 'Start', 'In') || '0');
             const inT = String(getProp(item, 'LeftOffset', 'In') || '0');
-            const deterministicId = 'r_' + crypto.createHash('blake2s256')
-              .update(`${trackName}:${clipName}:${startT}:${inT}`).digest('hex').slice(0, 16);
+            const deterministicId = 'r_' + Hasher.hash(`${trackName}:${clipName}:${startT}:${inT}`).slice(0, 16);
 
             trackObj.clips.push({
               id: String(rawId || deterministicId),

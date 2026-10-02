@@ -104,8 +104,7 @@ function packageDesktop() {
   const filesToCopy = [
     'framegit.config.json',
     'framegit.schema.json',
-    'index.js',
-    'package.json'
+    'index.js'
   ];
   for (const f of filesToCopy) {
     const src = path.join(ROOT_DIR, f);
@@ -114,14 +113,18 @@ function packageDesktop() {
     }
   }
 
-  // Copy required production node_modules
-  const prodModules = ['fast-xml-parser', 'xmlbuilder2'];
+  // Copy all production dependencies from node_modules (excluding electron)
   const targetNodeModules = path.join(appDir, 'node_modules');
   fs.mkdirSync(targetNodeModules, { recursive: true });
-  for (const mod of prodModules) {
-    const modSrc = path.join(ROOT_DIR, 'node_modules', mod);
-    if (fs.existsSync(modSrc)) {
-      copyRecursive(modSrc, path.join(targetNodeModules, mod));
+  const rootModules = fs.readdirSync(path.join(ROOT_DIR, 'node_modules'), { withFileTypes: true });
+  for (const mod of rootModules) {
+    if (mod.name.startsWith('.bin') || mod.name.includes('electron')) continue;
+    const modSrc = path.join(ROOT_DIR, 'node_modules', mod.name);
+    const modDest = path.join(targetNodeModules, mod.name);
+    if (mod.isDirectory()) {
+      copyRecursive(modSrc, modDest);
+    } else {
+      fs.copyFileSync(modSrc, modDest);
     }
   }
 
