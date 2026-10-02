@@ -309,7 +309,7 @@ async function main() {
           }
         });
 
-        win.loadURL('http://127.0.0.1:41793/');
+        win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
         // System Tray
         try {
