@@ -10,8 +10,9 @@
 const crypto = require('node:crypto');
 const { NetworkError, CloudAuthError } = require('./errors');
 
-// Official FrameGit registered GitHub OAuth App Client ID
+// Official FrameGit registered GitHub OAuth App Client ID & Secret
 const DEFAULT_CLIENT_ID = 'Ov23liEdxYDHJ3uGPzQv';
+const DEFAULT_CLIENT_SECRET = 'a6d64fc94769e2fa3ed0aef7c526118112550d78';
 
 class GitHubAuth {
   /**
@@ -27,10 +28,12 @@ class GitHubAuth {
   /**
    * @param {Object} [options]
    * @param {string} [options.clientId]
+   * @param {string} [options.clientSecret]
    * @param {string} [options.baseUrl='https://github.com']
    */
   constructor(options = {}) {
     this.clientId = options.clientId || DEFAULT_CLIENT_ID;
+    this.clientSecret = options.clientSecret || DEFAULT_CLIENT_SECRET;
     this.baseUrl = (options.baseUrl || 'https://github.com').replace(/\/+$/, '');
   }
 
@@ -189,8 +192,9 @@ class GitHubAuth {
       code,
       redirect_uri: redirectUri
     };
-    if (clientSecret) {
-      payload.client_secret = clientSecret;
+    const secret = clientSecret || this.clientSecret || DEFAULT_CLIENT_SECRET;
+    if (secret) {
+      payload.client_secret = secret;
     }
     if (codeVerifier) {
       payload.code_verifier = codeVerifier;
@@ -228,5 +232,6 @@ class GitHubAuth {
 
 module.exports = {
   GitHubAuth,
-  DEFAULT_CLIENT_ID
+  DEFAULT_CLIENT_ID,
+  DEFAULT_CLIENT_SECRET
 };

@@ -21,6 +21,7 @@ const crypto = require('node:crypto');
 const { ensureUserDataDir } = require('./storage_paths');
 const { CredentialVault } = require('../core/vault');
 const { safeJsonParse, wrapFsOperation } = require('../core/errors');
+const { DEFAULT_CLIENT_ID, DEFAULT_CLIENT_SECRET } = require('../core/github_auth');
 
 const DEFAULT_SETTINGS = {
   version: 1,
@@ -199,10 +200,16 @@ class UserStore {
    */
   getGitHubConfig() {
     const settings = this.getSettings();
-    const clientSecret = this.vault.getSecret('github.clientSecret');
+    let clientSecret = this.vault.getSecret('github.clientSecret');
     let clientId = settings.github && settings.github.clientId;
     if (!clientId || clientId === 'Iv23liFrameGitDefaultApp') {
-      clientId = 'Ov23liEdxYDHJ3uGPzQv';
+      clientId = DEFAULT_CLIENT_ID;
+    }
+    if (!clientSecret) {
+      clientSecret = DEFAULT_CLIENT_SECRET;
+      try {
+        this.vault.setSecret('github.clientSecret', clientSecret);
+      } catch (_) {}
     }
     return {
       clientId,
