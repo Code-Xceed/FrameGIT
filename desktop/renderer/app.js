@@ -97,6 +97,45 @@ const api = window.framegit || {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path })
   })).json(),
+  getRemoteInfo: async (projectPath) => (await fetch('/api/desktop/project/remote-info', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectPath })
+  })).json(),
+  publishGitHub: async (params) => (await fetch('/api/desktop/project/publish-github', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params)
+  })).json(),
+  pushRemote: async (projectPath) => (await fetch('/api/desktop/project/push', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectPath })
+  })).json(),
+  pullRemote: async (projectPath) => (await fetch('/api/desktop/project/pull', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectPath })
+  })).json(),
+  fetchRemote: async (projectPath) => (await fetch('/api/desktop/project/fetch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectPath })
+  })).json(),
+  syncRemote: async (projectPath) => (await fetch('/api/desktop/project/sync', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectPath })
+  })).json(),
+  discardChanges: async (projectPath) => (await fetch('/api/desktop/project/discard', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectPath })
+  })).json(),
+  ensurePluginsInstalled: async () => (await fetch('/api/desktop/plugins/ensure-installed', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  })).json(),
 
   // System Shell Utilities
   showItemInFolder: async (path) => (await fetch('/api/desktop/shell/reveal', {
@@ -804,6 +843,8 @@ function renderDashboard(app) {
     const changes = (proj.status && proj.status.changes) || [];
     const changesCount = changes.length;
 
+    const defaultRepoName = (proj.name || 'project').replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_\-\.]/g, '-');
+
     app.innerHTML = `
       <div class="studio-layout">
         <!-- Left Staging & Checkpoint Panel -->
@@ -826,6 +867,23 @@ function renderDashboard(app) {
             </div>
           </div>
 
+          <!-- Creative Bridge Status -->
+          <div class="creative-bridge-badge-row">
+            <div class="creative-bridge-pill ${proj.type === 'premiere' ? 'active' : ''}">
+              <span class="editor-badge-icon pr" style="width: 16px; height: 16px; font-size: 9px;">Pr</span>
+              <span>Premiere UXP Active</span>
+            </div>
+            <div class="creative-bridge-pill ${proj.type === 'resolve' ? 'active' : ''}">
+              <span class="editor-badge-icon dr" style="width: 16px; height: 16px; font-size: 9px;">Dr</span>
+              <span>Resolve Script Active</span>
+            </div>
+            <button class="btn-sync-bridges" id="btn-sync-creative-bridges" title="Ensure Premiere & Resolve integrations are deployed and linked">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+              </svg>
+            </button>
+          </div>
+
           <!-- Staging / Working Tree Area -->
           <div class="staging-section">
             <div class="staging-section-title">
@@ -838,9 +896,14 @@ function renderDashboard(app) {
             <div class="uncommitted-box">
               <div class="uncommitted-status-row">
                 <span>${isDirty ? `${changesCount} uncommitted modifications` : 'Timeline is up to date'}</span>
-                <button class="btn btn-secondary" id="btn-show-diff" style="height: 26px; padding: 0 8px; font-size: 11px;">
-                  Visual Diff
-                </button>
+                <div style="display: flex; gap: 6px;">
+                  <button class="btn btn-secondary" id="btn-show-diff" style="height: 26px; padding: 0 8px; font-size: 11px;">
+                    Visual Diff
+                  </button>
+                  <button class="btn btn-secondary ${isDirty ? 'btn-danger-hover' : ''}" id="btn-discard-changes" ${!isDirty ? 'disabled' : ''} style="height: 26px; padding: 0 8px; font-size: 11px;" title="Discard all uncommitted changes on disk">
+                    Discard
+                  </button>
+                </div>
               </div>
 
               ${isDirty ? `
@@ -885,6 +948,68 @@ function renderDashboard(app) {
 
         <!-- Right Main Timeline History Feed -->
         <main class="studio-history-panel">
+          <!-- Remote Sync Section -->
+          ${proj.remote && proj.remote.isLinked ? `
+            <div class="remote-sync-bar">
+              <div class="remote-repo-badge" id="btn-open-remote-link" title="Open repository on GitHub" style="cursor: pointer;">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+                </svg>
+                <span>${escapeHtml(proj.remote.repoFullName || 'origin')}</span>
+                <span class="external-icon">↗</span>
+              </div>
+
+              <div class="remote-action-buttons">
+                <button class="btn btn-secondary remote-action-btn" id="btn-remote-fetch" title="Fetch updates from origin">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                  </svg>
+                  <span>Fetch origin</span>
+                </button>
+
+                <button class="btn btn-secondary remote-action-btn" id="btn-remote-pull" title="Pull remote commits into local branch">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                    <polyline points="19 12 12 19 5 12"></polyline>
+                  </svg>
+                  <span>Pull</span>
+                  ${proj.remote.behind > 0 ? `<span class="remote-count-badge behind">${proj.remote.behind}</span>` : ''}
+                </button>
+
+                <button class="btn btn-secondary remote-action-btn" id="btn-remote-push" title="Push local commits to GitHub">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="12" y1="19" x2="12" y2="5"></line>
+                    <polyline points="5 12 12 5 19 12"></polyline>
+                  </svg>
+                  <span>Push</span>
+                  ${proj.remote.ahead > 0 ? `<span class="remote-count-badge ahead">${proj.remote.ahead}</span>` : ''}
+                </button>
+
+                <button class="btn btn-primary remote-action-btn" id="btn-remote-sync" title="Fetch origin and push commits">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
+                  </svg>
+                  <span>Sync</span>
+                </button>
+              </div>
+            </div>
+          ` : `
+            <div class="remote-sync-card">
+              <div class="remote-sync-info">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+                </svg>
+                <div>
+                  <h4>Publish repository to GitHub</h4>
+                  <p>Sync timeline manifests and checkpoints to a private or public GitHub repository.</p>
+                </div>
+              </div>
+              <button class="btn btn-primary" id="btn-open-publish-modal" style="height: 32px; padding: 0 14px; font-size: 12px; width: auto;">
+                <span>Publish to GitHub</span>
+              </button>
+            </div>
+          `}
+
           <div class="history-topbar">
             <div class="history-title-area">
               <h2>Timeline History (${proj.history ? proj.history.length : 0})</h2>
@@ -939,6 +1064,70 @@ function renderDashboard(app) {
             `}
           </div>
         </main>
+      </div>
+
+      <!-- Publish to GitHub Modal -->
+      <div class="modal-overlay" id="modal-publish-repo" style="display: none;">
+        <div class="modal-dialog">
+          <div class="modal-header">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+              </svg>
+              <h3>Publish Repository to GitHub</h3>
+            </div>
+            <button class="modal-close-btn" id="btn-close-publish-modal">✕</button>
+          </div>
+          <div class="modal-body">
+            <div class="form-group" style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px;">
+              <label style="font-size: 12px; font-weight: 600; color: var(--text-primary);">Repository Name</label>
+              <input type="text" id="input-publish-name" class="modal-input" placeholder="e.g. BMW-edit" value="${escapeHtml(defaultRepoName)}" />
+            </div>
+            <div class="form-group" style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px;">
+              <label style="font-size: 12px; font-weight: 600; color: var(--text-primary);">Description (Optional)</label>
+              <input type="text" id="input-publish-desc" class="modal-input" placeholder="Video project versioned with FrameGit" />
+            </div>
+            <div class="form-group" style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+              <input type="checkbox" id="input-publish-private" checked style="accent-color: var(--accent-purple);" />
+              <label for="input-publish-private" style="font-size: 12px; color: var(--text-secondary); cursor: pointer;">
+                Keep this repository private (Recommended)
+              </label>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" id="btn-cancel-publish-modal">Cancel</button>
+            <button class="btn btn-primary" id="btn-confirm-publish">Publish Repository</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Visual Diff Modal -->
+      <div class="modal-overlay" id="modal-visual-diff" style="display: none;">
+        <div class="modal-dialog" style="max-width: 820px; width: 95%;">
+          <div class="modal-header">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="4 7 4 4 20 4 20 7"></polyline>
+                <line x1="9" y1="20" x2="15" y2="20"></line>
+                <line x1="12" y1="4" x2="12" y2="20"></line>
+              </svg>
+              <h3>Timeline Visual Diff</h3>
+            </div>
+            <button class="modal-close-btn" id="btn-close-diff-modal">✕</button>
+          </div>
+          <div class="modal-body" style="padding: 0;">
+            <pre class="diff-terminal-content" id="diff-terminal-output">Computing timeline diff...</pre>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" id="btn-open-html-diff" title="Open full visual diff in browser">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"></path>
+              </svg>
+              <span>Open Interactive Canvas</span>
+            </button>
+            <button class="btn btn-primary" id="btn-dismiss-diff-modal">Done</button>
+          </div>
+        </div>
       </div>
     `;
   }
@@ -1566,19 +1755,249 @@ function attachEventListeners() {
     };
   }
 
-  // View Visual Diff
+  // Discard Uncommitted Changes
+  const discardBtn = $('btn-discard-changes');
+  if (discardBtn && state.activeProject) {
+    discardBtn.onclick = async () => {
+      if (!state.activeProject.status || !state.activeProject.status.hasChanges) return;
+      if (confirm('Discard all uncommitted timeline modifications? This will revert the project to the latest checkpoint on disk.')) {
+        discardBtn.disabled = true;
+        discardBtn.textContent = 'Discarding...';
+        try {
+          const res = await api.discardChanges(state.activeProject.path);
+          if (res && res.success) {
+            showToast('Uncommitted changes discarded. Project restored.');
+            await openProjectByPath(state.activeProject.path);
+          } else {
+            showToast(`Discard failed: ${res.error || 'Unknown error'}`);
+          }
+        } catch (err) {
+          showToast(`Error: ${err.message}`);
+        } finally {
+          if ($('btn-discard-changes')) {
+            $('btn-discard-changes').disabled = false;
+            $('btn-discard-changes').textContent = 'Discard';
+          }
+        }
+      }
+    };
+  }
+
+  // View Visual Diff Modal
   const diffBtn = $('btn-show-diff');
-  if (diffBtn && state.activeProject) {
+  const diffModal = $('modal-visual-diff');
+  const diffOutput = $('diff-terminal-output');
+  if (diffBtn && diffModal && state.activeProject) {
     diffBtn.onclick = async () => {
+      diffModal.style.display = 'flex';
+      if (diffOutput) diffOutput.textContent = 'Analyzing timeline and computing SMPTE frame diff...';
       try {
         const res = await api.getProjectDiff(state.activeProject.path);
         if (res && res.success && res.ascii) {
-          alert(`=== TIMELINE VISUAL DIFF ===\n\n${res.ascii}`);
+          if (diffOutput) diffOutput.textContent = res.ascii;
         } else {
-          showToast('Working tree clean — No timeline modifications detected.');
+          if (diffOutput) diffOutput.textContent = 'Working tree clean — No uncommitted timeline modifications detected.';
         }
       } catch (err) {
-        showToast('Error computing diff: ' + err.message);
+        if (diffOutput) diffOutput.textContent = 'Error computing visual diff: ' + err.message;
+      }
+    };
+  }
+
+  const closeDiffBtn = $('btn-close-diff-modal');
+  const dismissDiffBtn = $('btn-dismiss-diff-modal');
+  if (closeDiffBtn && diffModal) closeDiffBtn.onclick = () => { diffModal.style.display = 'none'; };
+  if (dismissDiffBtn && diffModal) dismissDiffBtn.onclick = () => { diffModal.style.display = 'none'; };
+
+  const openHtmlDiffBtn = $('btn-open-html-diff');
+  if (openHtmlDiffBtn && state.activeProject) {
+    openHtmlDiffBtn.onclick = () => {
+      const url = `http://127.0.0.1:41793/api/desktop/diff/html?projectPath=${encodeURIComponent(state.activeProject.path)}`;
+      api.openExternal(url);
+    };
+  }
+
+  // Sync Creative Bridges
+  const syncBridgesBtn = $('btn-sync-creative-bridges');
+  if (syncBridgesBtn) {
+    syncBridgesBtn.onclick = async () => {
+      syncBridgesBtn.style.opacity = '0.5';
+      try {
+        await api.ensurePluginsInstalled();
+        showToast('Creative bridges verified: Premiere Pro UXP & DaVinci Resolve scripts synchronized.');
+        await scanEditors();
+      } catch (err) {
+        showToast('Bridge error: ' + err.message);
+      } finally {
+        syncBridgesBtn.style.opacity = '1';
+      }
+    };
+  }
+
+  // Publish to GitHub Modal Handlers
+  const openPublishBtn = $('btn-open-publish-modal');
+  const publishModal = $('modal-publish-repo');
+  if (openPublishBtn && publishModal) {
+    openPublishBtn.onclick = () => {
+      publishModal.style.display = 'flex';
+      const nameInput = $('input-publish-name');
+      if (nameInput) nameInput.focus();
+    };
+  }
+
+  const closePublishBtn = $('btn-close-publish-modal');
+  const cancelPublishBtn = $('btn-cancel-publish-modal');
+  if (closePublishBtn && publishModal) closePublishBtn.onclick = () => { publishModal.style.display = 'none'; };
+  if (cancelPublishBtn && publishModal) cancelPublishBtn.onclick = () => { publishModal.style.display = 'none'; };
+
+  const confirmPublishBtn = $('btn-confirm-publish');
+  if (confirmPublishBtn && state.activeProject) {
+    confirmPublishBtn.onclick = async () => {
+      const nameInput = $('input-publish-name');
+      const descInput = $('input-publish-desc');
+      const privInput = $('input-publish-private');
+
+      const repoName = nameInput ? nameInput.value.trim() : '';
+      if (!repoName) {
+        showToast('Please enter a repository name');
+        if (nameInput) nameInput.focus();
+        return;
+      }
+
+      confirmPublishBtn.disabled = true;
+      confirmPublishBtn.textContent = 'Publishing to GitHub...';
+
+      try {
+        const res = await api.publishGitHub({
+          projectPath: state.activeProject.path,
+          repoName,
+          description: descInput ? descInput.value.trim() : '',
+          isPrivate: privInput ? privInput.checked : true
+        });
+
+        if (res && res.success) {
+          if (publishModal) publishModal.style.display = 'none';
+          showToast(`Published to GitHub: ${res.repoFullName}`);
+          await openProjectByPath(state.activeProject.path);
+        } else {
+          showToast(`Publish failed: ${res.error || 'Unknown error'}`);
+        }
+      } catch (err) {
+        showToast(`Publish error: ${err.message}`);
+      } finally {
+        if (confirmPublishBtn) {
+          confirmPublishBtn.disabled = false;
+          confirmPublishBtn.textContent = 'Publish Repository';
+        }
+      }
+    };
+  }
+
+  // Remote Actions: Fetch, Pull, Push, Sync, Link
+  const fetchBtn = $('btn-remote-fetch');
+  if (fetchBtn && state.activeProject) {
+    fetchBtn.onclick = async () => {
+      fetchBtn.disabled = true;
+      fetchBtn.innerHTML = `<div class="spinner" style="width: 10px; height: 10px;"></div><span>Fetching...</span>`;
+      try {
+        const res = await api.fetchRemote(state.activeProject.path);
+        if (res && res.success) {
+          showToast('Fetched updates from origin.');
+          await openProjectByPath(state.activeProject.path);
+        } else {
+          showToast(`Fetch error: ${res.error || 'Failed'}`);
+        }
+      } catch (err) {
+        showToast(`Fetch error: ${err.message}`);
+      } finally {
+        if ($('btn-remote-fetch')) {
+          $('btn-remote-fetch').disabled = false;
+          $('btn-remote-fetch').innerHTML = `
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+            </svg>
+            <span>Fetch origin</span>
+          `;
+        }
+      }
+    };
+  }
+
+  const pullBtn = $('btn-remote-pull');
+  if (pullBtn && state.activeProject) {
+    pullBtn.onclick = async () => {
+      pullBtn.disabled = true;
+      pullBtn.innerHTML = `<div class="spinner" style="width: 10px; height: 10px;"></div><span>Pulling...</span>`;
+      try {
+        const res = await api.pullRemote(state.activeProject.path);
+        if (res && res.success) {
+          showToast('Pull completed: Timeline updated from remote.');
+          await openProjectByPath(state.activeProject.path);
+        } else {
+          showToast(`Pull error: ${res.error || 'Failed'}`);
+        }
+      } catch (err) {
+        showToast(`Pull error: ${err.message}`);
+      } finally {
+        if ($('btn-remote-pull')) {
+          $('btn-remote-pull').disabled = false;
+        }
+      }
+    };
+  }
+
+  const pushBtn = $('btn-remote-push');
+  if (pushBtn && state.activeProject) {
+    pushBtn.onclick = async () => {
+      pushBtn.disabled = true;
+      pushBtn.innerHTML = `<div class="spinner" style="width: 10px; height: 10px;"></div><span>Pushing...</span>`;
+      try {
+        const res = await api.pushRemote(state.activeProject.path);
+        if (res && res.success) {
+          showToast('Push completed: Commits uploaded to GitHub.');
+          await openProjectByPath(state.activeProject.path);
+        } else {
+          showToast(`Push error: ${res.error || 'Failed'}`);
+        }
+      } catch (err) {
+        showToast(`Push error: ${err.message}`);
+      } finally {
+        if ($('btn-remote-push')) {
+          $('btn-remote-push').disabled = false;
+        }
+      }
+    };
+  }
+
+  const syncBtn = $('btn-remote-sync');
+  if (syncBtn && state.activeProject) {
+    syncBtn.onclick = async () => {
+      syncBtn.disabled = true;
+      syncBtn.innerHTML = `<div class="spinner" style="width: 10px; height: 10px;"></div><span>Syncing...</span>`;
+      try {
+        const res = await api.syncRemote(state.activeProject.path);
+        if (res && res.success) {
+          showToast('Sync complete: Reconciled with remote.');
+          await openProjectByPath(state.activeProject.path);
+        } else {
+          showToast(`Sync error: ${res.error || 'Failed'}`);
+        }
+      } catch (err) {
+        showToast(`Sync error: ${err.message}`);
+      } finally {
+        if ($('btn-remote-sync')) {
+          $('btn-remote-sync').disabled = false;
+        }
+      }
+    };
+  }
+
+  const openRemoteLinkBtn = $('btn-open-remote-link');
+  if (openRemoteLinkBtn && state.activeProject && state.activeProject.remote) {
+    openRemoteLinkBtn.onclick = () => {
+      const repo = state.activeProject.remote.repoFullName;
+      if (repo) {
+        api.openExternal(`https://github.com/${repo}`);
       }
     };
   }
@@ -1614,6 +2033,11 @@ async function openProjectByPath(projectPath) {
   try {
     const details = await api.inspectProject(projectPath);
     if (details && details.success) {
+      let remote = null;
+      try {
+        remote = await api.getRemoteInfo(projectPath);
+      } catch (_) {}
+
       state.activeProject = {
         path: projectPath,
         projectFilePath: details.projectFilePath || projectPath,
@@ -1622,7 +2046,8 @@ async function openProjectByPath(projectPath) {
         currentBranch: details.currentBranch || 'main',
         status: details.status || {},
         branches: details.branches || [],
-        history: details.history || []
+        history: details.history || [],
+        remote: (remote && remote.success) ? remote : null
       };
       state.trackedProjects = await api.getTrackedProjects();
       render();

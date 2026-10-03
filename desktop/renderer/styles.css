@@ -1819,3 +1819,216 @@ body {
   justify-content: flex-end;
   gap: 10px;
 }
+
+/* Remote Sync Toolbar & Banners */
+.remote-sync-card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  transition: all 0.15s ease;
+}
+
+.remote-sync-card:hover {
+  border-color: var(--border-hover);
+  background-color: #13151c;
+}
+
+.remote-sync-info {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.remote-sync-info svg {
+  color: var(--accent-purple);
+  flex-shrink: 0;
+}
+
+.remote-sync-info h4 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.remote-sync-info p {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.remote-sync-bar {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 12px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.remote-repo-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-primary);
+  background-color: var(--bg-surface);
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  transition: all 0.12s ease;
+}
+
+.remote-repo-badge:hover {
+  border-color: var(--accent-purple);
+  color: #c4b5fd;
+  background-color: rgba(124, 58, 237, 0.1);
+}
+
+.remote-repo-badge .external-icon {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.remote-action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.remote-action-btn {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+}
+
+.remote-count-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 10px;
+  font-family: var(--font-mono);
+}
+
+.remote-count-badge.ahead {
+  background-color: rgba(63, 185, 80, 0.25);
+  color: #3fb950;
+  border: 1px solid rgba(63, 185, 80, 0.4);
+}
+
+.remote-count-badge.behind {
+  background-color: rgba(227, 179, 65, 0.25);
+  color: #e3b341;
+  border: 1px solid rgba(227, 179, 65, 0.4);
+}
+
+/* Creative Bridge Badges */
+.creative-bridge-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0 8px 0;
+}
+
+.creative-bridge-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+.creative-bridge-pill.active {
+  color: var(--text-secondary);
+  border-color: rgba(124, 58, 237, 0.3);
+}
+
+.btn-sync-bridges {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.12s ease;
+}
+
+.btn-sync-bridges:hover {
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+  background-color: var(--bg-surface);
+}
+
+/* Modal Inputs & Close */
+.modal-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px;
+  line-height: 1;
+  border-radius: 4px;
+  transition: color 0.12s ease;
+}
+
+.modal-close-btn:hover {
+  color: var(--text-primary);
+}
+
+.modal-input {
+  width: 100%;
+  height: 38px;
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 0 12px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.modal-input:focus {
+  border-color: var(--accent-purple);
+  box-shadow: 0 0 0 2px var(--accent-purple-glow);
+}
+
+.diff-terminal-content {
+  background-color: #0b0c10;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 16px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: #d1d5db;
+  max-height: 480px;
+  overflow: auto;
+  white-space: pre;
+}
+
+.btn-danger-hover:hover {
+  border-color: var(--text-danger) !important;
+  color: var(--text-danger) !important;
+  background-color: rgba(248, 81, 73, 0.1) !important;
+}

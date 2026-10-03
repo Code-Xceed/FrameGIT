@@ -83,6 +83,15 @@ class GitHubApiClient {
     return this._request('GET', `/repos/${repoFullName}`);
   }
 
+  async createRepo({ name, description = '', isPrivate = true }) {
+    return this._request('POST', '/user/repos', {
+      name,
+      description,
+      private: isPrivate,
+      auto_init: false
+    });
+  }
+
   /**
    * Read a file's UTF-8 content from a repository via the GitHub Contents API.
    * @param {string} repoFullName 'owner/repo'
@@ -267,12 +276,84 @@ class GitHubSync {
   }
 
   /**
+   * Retrieve the linked GitHub repository name from memory or SQLite.
+   * @returns {string|null}
+   */
+  getLinkedRepo() {
+    if (this.linkedRepo) return this.linkedRepo;
+    try {
+      this.engine.db.exec(`
+        CREATE TABLE IF NOT EXISTS github_config (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        );
+      `);
+      const row = this.engine.db.prepare("SELECT value FROM github_config WHERE key = 'repo_fullname'").get();
+      if (row && row.value) {
+        this.linkedRepo = row.value;
+        return this.linkedRepo;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /**
+   * Check remote GitHub branch ref and compute ahead/behind status.
+   * @param {string} [branchName='main']
+   * @returns {Promise<{isLinked: boolean, repoFullName: string|null, ahead: number, behind: number, remoteSha: string|null}>}
+   */
+  async getRemoteStatus(branchName = 'main') {
+    const linked = this.getLinkedRepo();
+    if (!linked) {
+      return { isLinked: false, repoFullName: null, ahead: 0, behind: 0, remoteSha: null };
+    }
+
+    try {
+      const branchRow = this.engine.db.prepare('SELECT commit_hash FROM branches WHERE name = ?').get(branchName);
+      const localCommit = branchRow ? branchRow.commit_hash : null;
+      const remoteRef = await this.api.getRef(linked, branchName);
+
+      if (!remoteRef) {
+        return {
+          isLinked: true,
+          repoFullName: linked,
+          ahead: localCommit ? 1 : 0,
+          behind: 0,
+          remoteSha: null
+        };
+      }
+
+      // Check if remote ref matches local or if local has commits
+      const isUpToDate = localCommit && remoteRef.startsWith(localCommit.slice(0, 7));
+      return {
+        isLinked: true,
+        repoFullName: linked,
+        ahead: isUpToDate ? 0 : 1,
+        behind: 0,
+        remoteSha: remoteRef
+      };
+    } catch (err) {
+      return {
+        isLinked: true,
+        repoFullName: linked,
+        ahead: 0,
+        behind: 0,
+        remoteSha: null,
+        error: err.message
+      };
+    }
+  }
+
+  /**
    * Mirror a FrameGit commit and its asset manifests to GitHub.
    * Only lightweight pointers and JSON manifests are committed to GitHub (never binary media!).
    * @param {string} branchName 
    * @returns {Promise<{gitSha: string, filesPushed: number, totalManifestBytes: number}>}
    */
   async syncBranchToGitHub(branchName) {
+    if (!this.linkedRepo) {
+      this.linkedRepo = this.getLinkedRepo();
+    }
     if (!this.linkedRepo) {
       throw new Error('Repository is not linked to GitHub. Call linkRepository() first.');
     }

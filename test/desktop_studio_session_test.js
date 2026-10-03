@@ -72,10 +72,9 @@ test('Desktop Studio & Session Management Endpoints', async (t) => {
   fs.mkdirSync(projectDir, { recursive: true });
   fs.writeFileSync(path.join(projectDir, 'Commercial.prproj'), zlib.gzipSync(Buffer.from(createSamplePrprojXml(), 'utf8')));
 
-  const testPort = 42888;
   const testStore = new UserStore({ dataDir: tmpDir });
-  const server = new DesktopServer(testPort, { userStore: testStore });
-  await server.start();
+  const server = new DesktopServer(0, { userStore: testStore });
+  const testPort = await server.start();
 
   t.after(() => {
     server.stop();
@@ -178,5 +177,30 @@ test('Desktop Studio & Session Management Endpoints', async (t) => {
     const badReveal = await makeRequest(testPort, 'POST', '/api/desktop/shell/reveal', { path: '/invalid/path/1234' });
     assert.strictEqual(badReveal.status, 400);
     assert.strictEqual(badReveal.data.success, false);
+  });
+
+  await t.test('8. Queries remote info for project', async () => {
+    const remoteRes = await makeRequest(testPort, 'POST', '/api/desktop/project/remote-info', { projectPath: projectDir });
+    assert.strictEqual(remoteRes.status, 200);
+    assert.strictEqual(remoteRes.data.success, true);
+    assert.strictEqual(remoteRes.data.isLinked, false);
+    assert.strictEqual(remoteRes.data.currentBranch, 'main');
+  });
+
+  await t.test('9. Discards uncommitted modifications on disk', async () => {
+    // Write an uncommitted change to the project file
+    fs.writeFileSync(path.join(projectDir, 'Commercial.prproj'), zlib.gzipSync(Buffer.from(createSamplePrprojXml(), 'utf8')));
+    const discardRes = await makeRequest(testPort, 'POST', '/api/desktop/project/discard', { projectPath: projectDir });
+    assert.strictEqual(discardRes.status, 200);
+    assert.strictEqual(discardRes.data.success, true);
+    assert.ok(discardRes.data.headHash);
+  });
+
+  await t.test('10. Ensures creative integrations are deployed', async () => {
+    const pluginRes = await makeRequest(testPort, 'POST', '/api/desktop/plugins/ensure-installed');
+    assert.strictEqual(pluginRes.status, 200);
+    assert.strictEqual(pluginRes.data.success, true);
+    assert.ok('premiere' in pluginRes.data);
+    assert.ok('resolve' in pluginRes.data);
   });
 });

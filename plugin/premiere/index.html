@@ -2,282 +2,492 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>FrameGit</title>
+  <title>FrameGit Source Control</title>
   <style>
     :root {
-      --bg-dark: #1e1e1e;
-      --bg-panel: #262626;
-      --bg-card: #2e2e2e;
-      --border-color: #3d3d3d;
-      --text-main: #e8e8e8;
-      --text-muted: #9a9a9a;
-      --accent-blue: #0d6efd;
-      --accent-hover: #0b5ed7;
-      --badge-added: #198754;
-      --badge-modified: #fd7e14;
-      --badge-deleted: #dc3545;
+      --vscode-bg: #1e1e1e;
+      --vscode-side: #252526;
+      --vscode-row-hover: #2a2d2e;
+      --vscode-row-active: #37373d;
+      --vscode-border: #333333;
+      --vscode-text: #cccccc;
+      --vscode-text-bright: #ffffff;
+      --vscode-text-muted: #858585;
+      --vscode-accent: #0078d4;
+      --vscode-accent-hover: #026ec1;
+      --badge-mod: #e2c08d;
+      --badge-add: #73c991;
+      --badge-del: #f14c4c;
+      --badge-fx: #c586c0;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      background-color: var(--bg-dark);
-      color: var(--text-main);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      font-size: 12px;
+      background-color: var(--vscode-side);
+      color: var(--vscode-text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-size: 11px;
       line-height: 1.4;
-      padding: 12px;
       height: 100vh;
       display: flex;
       flex-direction: column;
       user-select: none;
+      overflow: hidden;
     }
 
-    .header {
+    /* VS Code Title Bar */
+    .scm-title-bar {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding-bottom: 10px;
-      border-bottom: 1px solid var(--border-color);
-      margin-bottom: 12px;
-    }
-
-    .brand {
-      font-size: 13px;
-      font-weight: 700;
-      letter-spacing: 0.5px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .status-pill {
-      font-size: 10px;
-      padding: 2px 6px;
-      border-radius: 10px;
-      background-color: rgba(25, 135, 84, 0.2);
-      color: #75b798;
-      border: 1px solid rgba(25, 135, 84, 0.4);
-    }
-
-    .status-pill.offline {
-      background-color: rgba(220, 53, 69, 0.2);
-      color: #ea868f;
-      border-color: rgba(220, 53, 69, 0.4);
-    }
-
-    .section {
-      background: var(--bg-panel);
-      border: 1px solid var(--border-color);
-      border-radius: 6px;
-      padding: 10px;
-      margin-bottom: 12px;
-    }
-
-    .section-title {
+      padding: 8px 12px;
+      background: var(--vscode-side);
+      border-bottom: 1px solid var(--vscode-border);
       font-size: 11px;
       font-weight: 600;
+      letter-spacing: 0.5px;
       text-transform: uppercase;
-      color: var(--text-muted);
-      margin-bottom: 8px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+      color: var(--vscode-text-muted);
     }
 
-    .branch-selector {
-      width: 100%;
-      background: var(--bg-card);
-      color: var(--text-main);
-      border: 1px solid var(--border-color);
-      padding: 6px 8px;
-      border-radius: 4px;
-      font-size: 12px;
-      outline: none;
+    .scm-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .scm-icon-btn {
+      background: transparent;
+      border: none;
+      color: var(--vscode-text);
+      width: 22px;
+      height: 22px;
+      border-radius: 3px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       cursor: pointer;
     }
 
-    .changes-badge {
-      background: #3b3b3b;
-      padding: 2px 7px;
-      border-radius: 10px;
-      font-size: 10px;
-      font-weight: 700;
+    .scm-icon-btn:hover {
+      background: var(--vscode-row-hover);
+      color: var(--vscode-text-bright);
     }
 
-    .changes-list {
-      max-height: 140px;
+    /* Scrollable Body */
+    .scm-body {
+      flex: 1;
       overflow-y: auto;
-      margin-bottom: 8px;
+      display: flex;
+      flex-direction: column;
     }
 
-    .change-item {
-      padding: 5px 6px;
-      border-bottom: 1px solid rgba(255,255,255,0.05);
-      font-size: 11px;
+    /* Project Context Banner */
+    .scm-project-context {
+      padding: 8px 12px;
+      background: rgba(0, 0, 0, 0.2);
+      border-bottom: 1px solid var(--vscode-border);
+    }
+
+    .scm-proj-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--vscode-text-bright);
       display: flex;
       align-items: center;
       gap: 6px;
+      margin-bottom: 6px;
     }
 
-    .change-tag {
+    .scm-proj-title .badge {
+      background: #00005b;
+      color: #9999ff;
+      border: 1px solid #333399;
       font-size: 9px;
       padding: 1px 4px;
       border-radius: 3px;
-      font-weight: 600;
-      text-transform: uppercase;
+      font-weight: 700;
     }
 
-    .tag-moved { background: var(--badge-modified); color: white; }
-    .tag-added { background: var(--badge-added); color: white; }
-    .tag-deleted { background: var(--badge-deleted); color: white; }
-    .tag-effect { background: #6f42c1; color: white; }
+    .branch-bar {
+      display: flex;
+      gap: 6px;
+    }
 
-    .commit-box textarea {
-      width: 100%;
-      height: 50px;
-      background: var(--bg-card);
-      border: 1px solid var(--border-color);
-      color: var(--text-main);
-      padding: 6px;
-      border-radius: 4px;
+    .branch-select {
+      flex: 1;
+      background: var(--vscode-bg);
+      color: var(--vscode-text);
+      border: 1px solid var(--vscode-border);
+      padding: 4px 6px;
+      border-radius: 3px;
       font-size: 11px;
-      resize: none;
       outline: none;
+      cursor: pointer;
+    }
+
+    .btn-new-branch {
+      background: var(--vscode-bg);
+      border: 1px solid var(--vscode-border);
+      color: var(--vscode-text);
+      padding: 0 8px;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+
+    .btn-new-branch:hover {
+      background: var(--vscode-row-hover);
+      color: var(--vscode-text-bright);
+    }
+
+    /* Un-tracked project prompt */
+    .scm-untracked-box {
+      margin: 10px 12px;
+      padding: 10px;
+      background: rgba(0, 120, 212, 0.1);
+      border: 1px solid rgba(0, 120, 212, 0.3);
+      border-radius: 4px;
+      text-align: center;
+    }
+
+    .scm-untracked-box p {
+      font-size: 11px;
+      color: var(--vscode-text-bright);
       margin-bottom: 8px;
     }
 
-    .commit-box textarea:focus {
-      border-color: var(--accent-blue);
+    /* Commit Box */
+    .scm-commit-container {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--vscode-border);
     }
 
-    .btn {
-      background: var(--accent-blue);
+    .scm-commit-input {
+      width: 100%;
+      height: 48px;
+      background: var(--vscode-bg);
+      border: 1px solid var(--vscode-border);
+      color: var(--vscode-text-bright);
+      padding: 6px 8px;
+      font-size: 11px;
+      font-family: inherit;
+      border-radius: 3px;
+      resize: none;
+      outline: none;
+      margin-bottom: 6px;
+    }
+
+    .scm-commit-input:focus {
+      border-color: var(--vscode-accent);
+    }
+
+    .btn-primary {
+      width: 100%;
+      background: var(--vscode-accent);
       color: white;
       border: none;
-      border-radius: 4px;
-      padding: 7px 12px;
+      border-radius: 3px;
+      padding: 6px 10px;
       font-size: 11px;
       font-weight: 600;
       cursor: pointer;
-      width: 100%;
-      transition: background 0.15s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
     }
 
-    .btn:hover { background: var(--accent-hover); }
-    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-primary:hover {
+      background: var(--vscode-accent-hover);
+    }
 
-    .history-list {
-      flex: 1;
+    .btn-primary:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    /* Section Accordion */
+    .scm-section {
+      border-bottom: 1px solid var(--vscode-border);
+    }
+
+    .scm-section-header {
+      padding: 6px 12px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      background: rgba(0, 0, 0, 0.1);
+    }
+
+    .scm-section-title-left {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .scm-counter {
+      background: #3b3b3b;
+      padding: 1px 6px;
+      border-radius: 8px;
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--vscode-text-bright);
+    }
+
+    .scm-changes-list {
+      max-height: 180px;
       overflow-y: auto;
-      max-height: 200px;
     }
 
-    .history-item {
-      padding: 8px;
-      background: var(--bg-card);
-      border: 1px solid var(--border-color);
-      border-radius: 4px;
-      margin-bottom: 6px;
+    .scm-change-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 12px;
+      cursor: pointer;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.02);
     }
 
-    .history-header {
+    .scm-change-row:hover {
+      background: var(--vscode-row-hover);
+    }
+
+    .scm-change-info {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      flex: 1;
+    }
+
+    .scm-badge {
+      font-size: 9px;
+      font-weight: 700;
+      padding: 1px 4px;
+      border-radius: 2px;
+      text-transform: uppercase;
+    }
+
+    .scm-badge.mod { background: rgba(226, 192, 141, 0.2); color: var(--badge-mod); }
+    .scm-badge.add { background: rgba(115, 201, 145, 0.2); color: var(--badge-add); }
+    .scm-badge.del { background: rgba(241, 76, 76, 0.2); color: var(--badge-del); }
+    .scm-badge.fx  { background: rgba(197, 134, 192, 0.2); color: var(--badge-fx); }
+
+    /* Remote Sync Bar */
+    .scm-sync-bar {
+      padding: 8px 12px;
+      display: flex;
+      gap: 6px;
+      background: var(--vscode-bg);
+      border-bottom: 1px solid var(--vscode-border);
+    }
+
+    .btn-secondary {
+      flex: 1;
+      background: #333333;
+      color: var(--vscode-text-bright);
+      border: 1px solid #444444;
+      border-radius: 3px;
+      padding: 5px 8px;
+      font-size: 11px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+    }
+
+    .btn-secondary:hover {
+      background: #444444;
+    }
+
+    /* History List */
+    .scm-history-list {
+      max-height: 220px;
+      overflow-y: auto;
+    }
+
+    .scm-commit-row {
+      padding: 8px 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .scm-commit-row:hover {
+      background: var(--vscode-row-hover);
+    }
+
+    .scm-commit-header {
       display: flex;
       justify-content: space-between;
-      margin-bottom: 3px;
+      align-items: center;
     }
 
-    .history-sha {
+    .scm-commit-sha {
       font-family: monospace;
       font-weight: 700;
       color: #6ea8fe;
-      font-size: 11px;
-    }
-
-    .history-time {
-      color: var(--text-muted);
       font-size: 10px;
     }
 
-    .history-msg {
+    .scm-commit-time {
+      font-size: 10px;
+      color: var(--vscode-text-muted);
+    }
+
+    .scm-commit-msg {
       font-size: 11px;
-      margin-bottom: 6px;
+      color: var(--vscode-text-bright);
       word-break: break-word;
     }
 
-    .btn-restore {
-      background: #495057;
-      color: white;
-      border: none;
-      padding: 3px 8px;
-      border-radius: 3px;
+    .scm-commit-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 2px;
+    }
+
+    .scm-commit-author {
+      font-size: 10px;
+      color: var(--vscode-text-muted);
+    }
+
+    .btn-restore-small {
+      background: #3c3c3c;
+      color: var(--vscode-text-bright);
+      border: 1px solid #555555;
+      padding: 2px 6px;
+      border-radius: 2px;
       font-size: 10px;
       cursor: pointer;
     }
 
-    .btn-restore:hover { background: #6c757d; }
+    .btn-restore-small:hover {
+      background: #505050;
+    }
 
-    .footer {
+    /* Bottom Status Bar */
+    .scm-status-bar {
       margin-top: auto;
+      padding: 4px 12px;
+      background: var(--vscode-bg);
+      border-top: 1px solid var(--vscode-border);
       display: flex;
-      gap: 8px;
-      padding-top: 10px;
-      border-top: 1px solid var(--border-color);
+      justify-content: space-between;
+      align-items: center;
+      font-size: 10px;
+      color: var(--vscode-text-muted);
     }
 
-    .footer .btn {
-      flex: 1;
-      background: #343a40;
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #73c991;
+      display: inline-block;
     }
 
-    .footer .btn:hover { background: #495057; }
+    .status-dot.offline {
+      background: #f14c4c;
+    }
   </style>
 </head>
 <body>
-  <div class="header">
-    <div class="brand">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="12" cy="12" r="10"></circle>
-        <circle cx="12" cy="12" r="4"></circle>
-        <line x1="12" y1="2" x2="12" y2="8"></line>
-        <line x1="12" y1="16" x2="12" y2="22"></line>
-      </svg>
-      FRAMEGIT
-    </div>
-    <div id="statusPill" class="status-pill">Connected</div>
-  </div>
-
-  <!-- Branch Selector -->
-  <div class="section">
-    <div class="section-title">Active Branch</div>
-    <select id="branchSelect" class="branch-selector"></select>
-  </div>
-
-  <!-- Changes Section -->
-  <div class="section">
-    <div class="section-title">
-      Changes
-      <span id="changesBadge" class="changes-badge">0</span>
-    </div>
-    <div id="changesList" class="changes-list">
-      <div style="color: var(--text-muted); font-size: 11px; text-align: center; padding: 12px;">No uncommitted changes</div>
-    </div>
-    <div class="commit-box">
-      <textarea id="commitInput" placeholder="Commit message (e.g. Adjusted intro timing)"></textarea>
-      <button id="commitBtn" class="btn" disabled>Commit</button>
+  <!-- VS Code Source Control Header -->
+  <div class="scm-title-bar">
+    <span>Source Control: FrameGit</span>
+    <div class="scm-actions">
+      <button class="scm-icon-btn" id="btnRefresh" title="Refresh Working Tree">↻</button>
+      <button class="scm-icon-btn" id="btnDiff" title="View Timeline Visual Diff">☷</button>
+      <button class="scm-icon-btn" id="btnDiscard" title="Discard All Changes">↺</button>
     </div>
   </div>
 
-  <!-- History Section -->
-  <div class="section" style="flex: 1; display: flex; flex-direction: column;">
-    <div class="section-title">Project History</div>
-    <div id="historyList" class="history-list"></div>
+  <div class="scm-body">
+    <!-- Active Project & Branch Context -->
+    <div class="scm-project-context" id="projectContextArea">
+      <div class="scm-proj-title">
+        <span class="badge">Pr</span>
+        <span id="projNameLabel">Loading Project...</span>
+      </div>
+      <div class="branch-bar">
+        <select id="branchSelector" class="branch-select"></select>
+        <button class="btn-new-branch" id="btnNewBranch" title="New Branch">+</button>
+      </div>
+    </div>
+
+    <!-- Untracked Project Alert (Hidden by default) -->
+    <div id="untrackedNotice" class="scm-untracked-box" style="display: none;">
+      <p id="untrackedText">Active project is not tracked in FrameGit</p>
+      <button class="btn-primary" id="btnTrackActiveProject">+ Track in FrameGit</button>
+    </div>
+
+    <!-- Commit / Checkpoint Box -->
+    <div class="scm-commit-container">
+      <textarea id="commitMessageInput" class="scm-commit-input" placeholder="Message (Ctrl+Enter to commit)"></textarea>
+      <button class="btn-primary" id="btnCommit" disabled>
+        <span>✓ Commit Checkpoint</span>
+      </button>
+    </div>
+
+    <!-- Remote Sync Actions -->
+    <div class="scm-sync-bar">
+      <button class="btn-secondary" id="btnSync" title="Pull then Push">
+        <span>☁ Sync</span>
+      </button>
+      <button class="btn-secondary" id="btnPull" title="Pull remote changes">
+        <span>↓ Pull</span>
+      </button>
+      <button class="btn-secondary" id="btnPush" title="Push to remote">
+        <span>↑ Push</span>
+      </button>
+    </div>
+
+    <!-- Working Tree Changes -->
+    <div class="scm-section">
+      <div class="scm-section-header">
+        <div class="scm-section-title-left">
+          <span>Changes</span>
+          <span class="scm-counter" id="changesCountBadge">0</span>
+        </div>
+        <span style="font-size: 10px; color: var(--vscode-text-muted);">Working Tree</span>
+      </div>
+      <div class="scm-changes-list" id="changesListContainer">
+        <div style="color: var(--vscode-text-muted); padding: 12px; text-align: center;">No changes detected</div>
+      </div>
+    </div>
+
+    <!-- Timeline History -->
+    <div class="scm-section" style="flex: 1; border-bottom: none;">
+      <div class="scm-section-header">
+        <div class="scm-section-title-left">
+          <span>Timeline History</span>
+          <span class="scm-counter" id="historyCountBadge">0</span>
+        </div>
+      </div>
+      <div class="scm-history-list" id="historyListContainer"></div>
+    </div>
   </div>
 
-  <!-- Cloud Sync Footer -->
-  <div class="footer">
-    <button id="pushBtn" class="btn">Push</button>
-    <button id="pullBtn" class="btn">Pull</button>
+  <!-- Bottom Status Bar -->
+  <div class="scm-status-bar">
+    <div style="display: flex; align-items: center; gap: 5px;">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusLabel">Connected to FrameGit Desktop</span>
+    </div>
+    <span id="remoteSyncLabel">Local-first</span>
   </div>
 
   <script src="index.js"></script>

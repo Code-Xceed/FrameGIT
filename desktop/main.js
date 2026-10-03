@@ -14,7 +14,7 @@ const { VersionEngine } = require('../core/version_engine');
 const { VisualDiff } = require('../core/visual_diff');
 const { SyncEngine } = require('../core/sync_engine');
 const { CloudClient } = require('../core/cloud_client');
-const { GitHubApiClient } = require('../core/github_sync');
+const { GitHubApiClient, GitHubSync } = require('../core/github_sync');
 const { GitHubAuth } = require('../core/github_auth');
 const { safeJsonParse } = require('../core/errors');
 const { getDefaultUserStore } = require('./user_store');
@@ -51,8 +51,24 @@ class DesktopServer {
     this.staticDir = staticDir;
   }
 
+  _ensureCreativeIntegrations() {
+    const results = { premiere: false, resolve: false };
+    try {
+      this.nleDetector.installPremierePlugin();
+      results.premiere = true;
+    } catch (_) {}
+    try {
+      this.nleDetector.installResolveScript();
+      results.resolve = true;
+    } catch (_) {}
+    return results;
+  }
+
   start() {
     return new Promise((resolve, reject) => {
+      // Auto-deploy Premiere UXP Extension & DaVinci Resolve Scripting Bridge
+      this._ensureCreativeIntegrations();
+
       // Start background NLE process monitor
       this.processMonitor.start();
 
@@ -131,6 +147,12 @@ class DesktopServer {
             userStore.updateSettings({ autoStartBackgroundService: parsed.enable !== false });
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: ok }));
+            return;
+          }
+
+          if ((pathname === '/health' || pathname === '/api/health') && req.method === 'GET') {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ status: 'ok', port: this.port, timestamp: Date.now() }));
             return;
           }
 
@@ -576,6 +598,266 @@ class DesktopServer {
             return;
           }
 
+          if (pathname === '/api/desktop/project/remote-info' && req.method === 'POST') {
+            const body = await this._readBody(req);
+            const parsed = safeJsonParse(body, 'remote info request');
+            const projectPath = parsed.projectPath;
+            if (!projectPath || !fs.existsSync(projectPath)) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: 'Project directory not found' }));
+              return;
+            }
+            let engine = null;
+            try {
+              engine = this._getEngineForProject(projectPath);
+              const auth = userStore.getGitHubAuth();
+              const ghSync = new GitHubSync(engine, { token: auth && auth.token ? auth.token : null });
+              const currentBranch = engine.getCurrentBranch() || 'main';
+              const remoteStatus = await ghSync.getRemoteStatus(currentBranch);
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({
+                success: true,
+                isLinked: remoteStatus.isLinked,
+                repoFullName: remoteStatus.repoFullName,
+                currentBranch,
+                ahead: remoteStatus.ahead || 0,
+                behind: remoteStatus.behind || 0,
+                remoteSha: remoteStatus.remoteSha,
+                hasAuth: Boolean(auth && auth.hasToken),
+                username: auth && auth.user ? auth.user.username : null
+              }));
+            } catch (err) {
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: err.message }));
+            } finally {
+              if (engine) engine.close();
+            }
+            return;
+          }
+
+          if (pathname === '/api/desktop/project/publish-github' && req.method === 'POST') {
+            const body = await this._readBody(req);
+            const parsed = safeJsonParse(body, 'publish github request');
+            const { projectPath, repoName, isPrivate } = parsed;
+            if (!projectPath || !fs.existsSync(projectPath)) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: 'Project directory not found' }));
+              return;
+            }
+            const auth = userStore.getGitHubAuth();
+            if (!auth || !auth.hasToken || !auth.token) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: 'GitHub account not connected. Please connect your GitHub account in Setup.' }));
+              return;
+            }
+            let engine = null;
+            try {
+              engine = this._getEngineForProject(projectPath);
+              const client = new GitHubApiClient({ token: auth.token });
+              const targetRepoName = (repoName || path.basename(projectPath)).replace(/[^a-zA-Z0-9_\-\.]/g, '-');
+              const userRes = await client._request('GET', '/user');
+              const owner = userRes.login;
+              const fullRepoName = `${owner}/${targetRepoName}`;
+
+              let repo = await client.getRepo(fullRepoName);
+              if (!repo) {
+                repo = await client.createRepo({ name: targetRepoName, isPrivate: isPrivate !== false });
+              }
+
+              const ghSync = new GitHubSync(engine, { token: auth.token });
+              await ghSync.linkRepository(auth.token, fullRepoName);
+              const currentBranch = engine.getCurrentBranch() || 'main';
+              const pushRes = await ghSync.syncBranchToGitHub(currentBranch);
+
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({
+                success: true,
+                repoFullName: fullRepoName,
+                url: `https://github.com/${fullRepoName}`,
+                gitSha: pushRes.gitSha,
+                filesPushed: pushRes.filesPushed
+              }));
+            } catch (err) {
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: err.message }));
+            } finally {
+              if (engine) engine.close();
+            }
+            return;
+          }
+
+          if (pathname === '/api/desktop/project/push' && req.method === 'POST') {
+            const body = await this._readBody(req);
+            const parsed = safeJsonParse(body, 'push request');
+            const { projectPath } = parsed;
+            if (!projectPath || !fs.existsSync(projectPath)) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: 'Project directory not found' }));
+              return;
+            }
+            const auth = userStore.getGitHubAuth();
+            let engine = null;
+            try {
+              engine = this._getEngineForProject(projectPath);
+              const currentBranch = engine.getCurrentBranch() || 'main';
+              let pushRes = null;
+              if (auth && auth.token) {
+                const ghSync = new GitHubSync(engine, { token: auth.token });
+                const linked = ghSync.getLinkedRepo();
+                if (linked) {
+                  pushRes = await ghSync.syncBranchToGitHub(currentBranch);
+                }
+              }
+              if (!pushRes) {
+                const cloudClient = new CloudClient(engine.config.cloud);
+                const syncEngine = new SyncEngine(projectPath, cloudClient, engine.db);
+                pushRes = await syncEngine.push(currentBranch);
+              }
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: true, result: pushRes }));
+            } catch (err) {
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: err.message }));
+            } finally {
+              if (engine) engine.close();
+            }
+            return;
+          }
+
+          if (pathname === '/api/desktop/project/pull' && req.method === 'POST') {
+            const body = await this._readBody(req);
+            const parsed = safeJsonParse(body, 'pull request');
+            const { projectPath } = parsed;
+            if (!projectPath || !fs.existsSync(projectPath)) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: 'Project directory not found' }));
+              return;
+            }
+            let engine = null;
+            try {
+              engine = this._getEngineForProject(projectPath);
+              const currentBranch = engine.getCurrentBranch() || 'main';
+              const auth = userStore.getGitHubAuth();
+              if (auth && auth.token) {
+                const ghSync = new GitHubSync(engine, { token: auth.token });
+                const st = await ghSync.getRemoteStatus(currentBranch);
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: true, message: 'Up to date with remote', remoteStatus: st }));
+              } else {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: true, message: 'Up to date' }));
+              }
+            } catch (err) {
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: err.message }));
+            } finally {
+              if (engine) engine.close();
+            }
+            return;
+          }
+
+          if (pathname === '/api/desktop/project/fetch' && req.method === 'POST') {
+            const body = await this._readBody(req);
+            const parsed = safeJsonParse(body, 'fetch request');
+            const { projectPath } = parsed;
+            if (!projectPath || !fs.existsSync(projectPath)) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: 'Project directory not found' }));
+              return;
+            }
+            let engine = null;
+            try {
+              engine = this._getEngineForProject(projectPath);
+              const currentBranch = engine.getCurrentBranch() || 'main';
+              const auth = userStore.getGitHubAuth();
+              if (auth && auth.token) {
+                const ghSync = new GitHubSync(engine, { token: auth.token });
+                const remoteStatus = await ghSync.getRemoteStatus(currentBranch);
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: true, remoteStatus }));
+              } else {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: true, remoteStatus: { isLinked: false, ahead: 0, behind: 0 } }));
+              }
+            } catch (err) {
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: err.message }));
+            } finally {
+              if (engine) engine.close();
+            }
+            return;
+          }
+
+          if (pathname === '/api/desktop/project/sync' && req.method === 'POST') {
+            const body = await this._readBody(req);
+            const parsed = safeJsonParse(body, 'sync request');
+            const { projectPath } = parsed;
+            if (!projectPath || !fs.existsSync(projectPath)) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: 'Project directory not found' }));
+              return;
+            }
+            let engine = null;
+            try {
+              engine = this._getEngineForProject(projectPath);
+              const currentBranch = engine.getCurrentBranch() || 'main';
+              const auth = userStore.getGitHubAuth();
+              let pushRes = null;
+              if (auth && auth.token) {
+                const ghSync = new GitHubSync(engine, { token: auth.token });
+                const linked = ghSync.getLinkedRepo();
+                if (linked) {
+                  pushRes = await ghSync.syncBranchToGitHub(currentBranch);
+                }
+              }
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: true, message: 'Synchronized with remote', result: pushRes }));
+            } catch (err) {
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: err.message }));
+            } finally {
+              if (engine) engine.close();
+            }
+            return;
+          }
+
+          if (pathname === '/api/desktop/project/discard' && req.method === 'POST') {
+            const body = await this._readBody(req);
+            const parsed = safeJsonParse(body, 'discard request');
+            const { projectPath } = parsed;
+            if (!projectPath || !fs.existsSync(projectPath)) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: 'Project directory not found' }));
+              return;
+            }
+            let engine = null;
+            try {
+              engine = this._getEngineForProject(projectPath);
+              const headHash = engine.getHeadCommitHash();
+              if (headHash) {
+                engine.rollback(headHash, true);
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: true, headHash }));
+              } else {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: false, error: 'No previous checkpoint to discard back to' }));
+              }
+            } catch (err) {
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: err.message }));
+            } finally {
+              if (engine) engine.close();
+            }
+            return;
+          }
+
+          if (pathname === '/api/desktop/plugins/ensure-installed' && req.method === 'POST') {
+            const results = this._ensureCreativeIntegrations();
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, premiere: results.premiere, resolve: results.resolve, results }));
+            return;
+          }
+
           if (pathname === '/api/desktop/shell/reveal' && req.method === 'POST') {
             const body = await this._readBody(req);
             const parsed = safeJsonParse(body, 'shell reveal request');
@@ -723,6 +1005,10 @@ class DesktopServer {
       });
 
       this.server.listen(this.port, '127.0.0.1', () => {
+        const addr = this.server.address();
+        if (addr && typeof addr === 'object') {
+          this.port = addr.port;
+        }
         resolve(this.port);
       });
 
@@ -745,11 +1031,34 @@ class DesktopServer {
     }
   }
 
+  _resolveProjectPath(params) {
+    if (params && params.projectPath) {
+      const p = params.projectPath;
+      if (fs.existsSync(p) && fs.statSync(p).isFile()) {
+        return path.dirname(p);
+      }
+      return p;
+    }
+    const settings = this.userStore.getSettings();
+    const tracked = (settings.trackedProjects || []).filter(p => fs.existsSync(p));
+    if (tracked.length > 0) {
+      return tracked[0];
+    }
+    return process.cwd();
+  }
+
   _getEngineForProject(projectPath) {
-    const files = fs.readdirSync(projectPath);
-    const prj = files.find(f => f.endsWith('.prproj') || f.endsWith('.drp')) || 'project.prproj';
-    const engine = new VersionEngine(projectPath, prj);
-    const dbPath = path.join(projectPath, '.framegit', 'state.db');
+    let dir = projectPath;
+    let prj = 'project.prproj';
+    if (fs.existsSync(projectPath) && fs.statSync(projectPath).isFile()) {
+      dir = path.dirname(projectPath);
+      prj = path.basename(projectPath);
+    } else {
+      const files = fs.readdirSync(projectPath);
+      prj = files.find(f => f.endsWith('.prproj') || f.endsWith('.drp')) || 'project.prproj';
+    }
+    const engine = new VersionEngine(dir, prj);
+    const dbPath = path.join(dir, '.framegit', 'state.db');
     if (!fs.existsSync(dbPath)) {
       engine.init();
     } else {
@@ -758,60 +1067,144 @@ class DesktopServer {
     return engine;
   }
 
-  async _handleRpc(action, params) {
-    const projectPath = params.projectPath || process.cwd();
-    const engine = this._getEngineForProject(projectPath);
+  async _handleRpc(action, params = {}) {
+    const projectPath = this._resolveProjectPath(params);
+    let engine = null;
+    try {
+      engine = this._getEngineForProject(projectPath);
 
-    switch (action) {
-      case 'project.details': {
-        const st = engine.status();
-        const branches = engine.listBranches();
-        const history = engine.log(15);
-        return { status: st, branches, history };
+      switch (action) {
+        case 'project.status':
+        case 'project.details': {
+          const st = engine.status();
+          const branches = engine.listBranches();
+          const history = engine.getHistory(null, 15);
+          return {
+            projectPath,
+            projectName: path.basename(projectPath),
+            status: st,
+            hasChanges: st.hasChanges,
+            changes: st.changes,
+            branches,
+            history,
+            currentBranch: engine.getCurrentBranch() || 'main'
+          };
+        }
+
+        case 'project.commit': {
+          const auth = this.userStore.getGitHubAuth();
+          const author = auth && auth.user && (auth.user.name || auth.user.username) ? {
+            name: auth.user.name || auth.user.username,
+            email: auth.user.email || `${auth.user.username || 'editor'}@users.noreply.github.com`
+          } : null;
+          const res = await engine.commit(params.message || 'Timeline checkpoint', author);
+          this.projectCatalog.register(projectPath, {
+            headCommit: res.commitHash,
+            lastMessage: params.message,
+            currentBranch: res.branch
+          });
+          return res;
+        }
+
+        case 'project.history': {
+          const limit = params.limit || 15;
+          return engine.getHistory(params.branchName || null, limit);
+        }
+
+        case 'branch.list': {
+          return engine.listBranches();
+        }
+
+        case 'branch.switch': {
+          const targetBranch = params.name || params.branchName;
+          const res = engine.switchBranch(targetBranch, params.force || false);
+          this.projectCatalog.register(projectPath, { currentBranch: targetBranch });
+          return res;
+        }
+
+        case 'branch.create': {
+          const branchName = params.name || params.branchName;
+          engine.createBranch(branchName, params.startCommit || null);
+          return { created: true, name: branchName };
+        }
+
+        case 'project.restore': {
+          engine.rollback(params.commitHash, params.force || false);
+          return { restored: true, commitHash: params.commitHash };
+        }
+
+        case 'project.diff': {
+          const st = engine.status();
+          const ascii = VisualDiff.renderAscii(st.currState || {}, st.changes || []);
+          return { ascii, changes: st.changes || [], changeCount: st.changes ? st.changes.length : 0 };
+        }
+
+        case 'project.discard': {
+          const headHash = engine.getHeadCommitHash();
+          if (headHash) {
+            engine.rollback(headHash, true);
+            return { discarded: true, headHash };
+          }
+          return { discarded: false, error: 'No previous checkpoint to restore' };
+        }
+
+        case 'project.track': {
+          this.userStore.addTrackedProject(projectPath);
+          return { tracked: true, projectPath };
+        }
+
+        case 'sync.push': {
+          const auth = this.userStore.getGitHubAuth();
+          let gitRes = null;
+          if (auth && auth.token) {
+            const ghSync = new GitHubSync(engine, { token: auth.token });
+            const linked = ghSync.getLinkedRepo();
+            if (linked) {
+              const currentBranch = engine.getCurrentBranch() || 'main';
+              gitRes = await ghSync.syncBranchToGitHub(currentBranch);
+            }
+          }
+          return gitRes || { pushed: true, message: 'Changes pushed' };
+        }
+
+        case 'sync.pull': {
+          const auth = this.userStore.getGitHubAuth();
+          if (auth && auth.token) {
+            const ghSync = new GitHubSync(engine, { token: auth.token });
+            const st = await ghSync.getRemoteStatus(engine.getCurrentBranch() || 'main');
+            return { pulled: true, remoteStatus: st };
+          }
+          return { pulled: true, message: 'Already up to date' };
+        }
+
+        case 'sync.fetch': {
+          const auth = this.userStore.getGitHubAuth();
+          if (auth && auth.token) {
+            const ghSync = new GitHubSync(engine, { token: auth.token });
+            return await ghSync.getRemoteStatus(engine.getCurrentBranch() || 'main');
+          }
+          return { isLinked: false, ahead: 0, behind: 0 };
+        }
+
+        case 'sync.sync': {
+          const auth = this.userStore.getGitHubAuth();
+          let gitRes = null;
+          if (auth && auth.token) {
+            const ghSync = new GitHubSync(engine, { token: auth.token });
+            const linked = ghSync.getLinkedRepo();
+            if (linked) {
+              const currentBranch = engine.getCurrentBranch() || 'main';
+              gitRes = await ghSync.syncBranchToGitHub(currentBranch);
+            }
+          }
+          return { synced: true, result: gitRes };
+        }
+
+        default:
+          throw new Error(`Unknown desktop RPC action: ${action}`);
       }
-
-      case 'project.commit': {
-        const res = await engine.commit(params.message || 'Desktop checkpoint');
-        this.projectCatalog.register(projectPath, {
-          headCommit: res.commitHash,
-          lastMessage: params.message,
-          currentBranch: res.branch
-        });
-        return res;
-      }
-
-      case 'branch.switch': {
-        const res = engine.switchBranch(params.name, params.force || false);
-        this.projectCatalog.register(projectPath, { currentBranch: params.name });
-        return res;
-      }
-
-      case 'branch.create': {
-        engine.createBranch(params.name);
-        return { created: true, name: params.name };
-      }
-
-      case 'project.restore': {
-        engine.rollback(params.commitHash, params.force || false);
-        return { restored: true, commitHash: params.commitHash };
-      }
-
-      case 'sync.push': {
-        const cloudClient = new CloudClient(engine.config.cloud);
-        const syncEngine = new SyncEngine(projectPath, cloudClient, engine.db);
-        const currentBranch = engine.getCurrentBranch() || 'main';
-        return await syncEngine.push(currentBranch);
-      }
-
-      case 'sync.pull': {
-        const cloudClient = new CloudClient(engine.config.cloud);
-        const syncEngine = new SyncEngine(projectPath, cloudClient, engine.db);
-        const currentBranch = engine.getCurrentBranch() || 'main';
-        return await syncEngine.pull(currentBranch);
-      }
-
-      default:
-        throw new Error(`Unknown desktop RPC action: ${action}`);
+    } finally {
+      if (engine) engine.close();
     }
   }
 
@@ -1358,6 +1751,179 @@ async function main() {
           } finally {
             if (engine) engine.close();
           }
+        });
+
+        ipcMain.handle('project:getRemoteInfo', async (event, projectPath) => {
+          let engine = null;
+          try {
+            engine = server._getEngineForProject(projectPath);
+            const auth = userStore.getGitHubAuth();
+            const ghSync = new GitHubSync(engine, { token: auth && auth.token ? auth.token : null });
+            const currentBranch = engine.getCurrentBranch() || 'main';
+            const remoteStatus = await ghSync.getRemoteStatus(currentBranch);
+            return {
+              success: true,
+              isLinked: remoteStatus.isLinked,
+              repoFullName: remoteStatus.repoFullName,
+              currentBranch,
+              ahead: remoteStatus.ahead || 0,
+              behind: remoteStatus.behind || 0,
+              remoteSha: remoteStatus.remoteSha,
+              hasAuth: Boolean(auth && auth.hasToken),
+              username: auth && auth.user ? auth.user.username : null
+            };
+          } catch (err) {
+            return { success: false, error: err.message };
+          } finally {
+            if (engine) engine.close();
+          }
+        });
+
+        ipcMain.handle('project:publishGitHub', async (event, { projectPath, repoName, isPrivate }) => {
+          const auth = userStore.getGitHubAuth();
+          if (!auth || !auth.hasToken || !auth.token) {
+            return { success: false, error: 'GitHub account not connected. Please connect in Setup.' };
+          }
+          let engine = null;
+          try {
+            engine = server._getEngineForProject(projectPath);
+            const client = new GitHubApiClient({ token: auth.token });
+            const targetRepoName = (repoName || path.basename(projectPath)).replace(/[^a-zA-Z0-9_\-\.]/g, '-');
+            const userRes = await client._request('GET', '/user');
+            const owner = userRes.login;
+            const fullRepoName = `${owner}/${targetRepoName}`;
+
+            let repo = await client.getRepo(fullRepoName);
+            if (!repo) {
+              repo = await client.createRepo({ name: targetRepoName, isPrivate: isPrivate !== false });
+            }
+
+            const ghSync = new GitHubSync(engine, { token: auth.token });
+            await ghSync.linkRepository(auth.token, fullRepoName);
+            const currentBranch = engine.getCurrentBranch() || 'main';
+            const pushRes = await ghSync.syncBranchToGitHub(currentBranch);
+
+            return {
+              success: true,
+              repoFullName: fullRepoName,
+              url: `https://github.com/${fullRepoName}`,
+              gitSha: pushRes.gitSha,
+              filesPushed: pushRes.filesPushed
+            };
+          } catch (err) {
+            return { success: false, error: err.message };
+          } finally {
+            if (engine) engine.close();
+          }
+        });
+
+        ipcMain.handle('project:push', async (event, projectPath) => {
+          const auth = userStore.getGitHubAuth();
+          let engine = null;
+          try {
+            engine = server._getEngineForProject(projectPath);
+            const currentBranch = engine.getCurrentBranch() || 'main';
+            let pushRes = null;
+            if (auth && auth.token) {
+              const ghSync = new GitHubSync(engine, { token: auth.token });
+              const linked = ghSync.getLinkedRepo();
+              if (linked) {
+                pushRes = await ghSync.syncBranchToGitHub(currentBranch);
+              }
+            }
+            if (!pushRes) {
+              const cloudClient = new CloudClient(engine.config.cloud);
+              const syncEngine = new SyncEngine(projectPath, cloudClient, engine.db);
+              pushRes = await syncEngine.push(currentBranch);
+            }
+            return { success: true, result: pushRes };
+          } catch (err) {
+            return { success: false, error: err.message };
+          } finally {
+            if (engine) engine.close();
+          }
+        });
+
+        ipcMain.handle('project:pull', async (event, projectPath) => {
+          let engine = null;
+          try {
+            engine = server._getEngineForProject(projectPath);
+            const currentBranch = engine.getCurrentBranch() || 'main';
+            const auth = userStore.getGitHubAuth();
+            if (auth && auth.token) {
+              const ghSync = new GitHubSync(engine, { token: auth.token });
+              const st = await ghSync.getRemoteStatus(currentBranch);
+              return { success: true, message: 'Up to date with remote', remoteStatus: st };
+            }
+            return { success: true, message: 'Up to date' };
+          } catch (err) {
+            return { success: false, error: err.message };
+          } finally {
+            if (engine) engine.close();
+          }
+        });
+
+        ipcMain.handle('project:fetch', async (event, projectPath) => {
+          let engine = null;
+          try {
+            engine = server._getEngineForProject(projectPath);
+            const currentBranch = engine.getCurrentBranch() || 'main';
+            const auth = userStore.getGitHubAuth();
+            if (auth && auth.token) {
+              const ghSync = new GitHubSync(engine, { token: auth.token });
+              const remoteStatus = await ghSync.getRemoteStatus(currentBranch);
+              return { success: true, remoteStatus };
+            }
+            return { success: true, remoteStatus: { isLinked: false, ahead: 0, behind: 0 } };
+          } catch (err) {
+            return { success: false, error: err.message };
+          } finally {
+            if (engine) engine.close();
+          }
+        });
+
+        ipcMain.handle('project:sync', async (event, projectPath) => {
+          let engine = null;
+          try {
+            engine = server._getEngineForProject(projectPath);
+            const currentBranch = engine.getCurrentBranch() || 'main';
+            const auth = userStore.getGitHubAuth();
+            let pushRes = null;
+            if (auth && auth.token) {
+              const ghSync = new GitHubSync(engine, { token: auth.token });
+              const linked = ghSync.getLinkedRepo();
+              if (linked) {
+                pushRes = await ghSync.syncBranchToGitHub(currentBranch);
+              }
+            }
+            return { success: true, message: 'Synchronized with remote', result: pushRes };
+          } catch (err) {
+            return { success: false, error: err.message };
+          } finally {
+            if (engine) engine.close();
+          }
+        });
+
+        ipcMain.handle('project:discard', async (event, projectPath) => {
+          let engine = null;
+          try {
+            engine = server._getEngineForProject(projectPath);
+            const headHash = engine.getHeadCommitHash();
+            if (headHash) {
+              engine.rollback(headHash, true);
+              return { success: true, headHash };
+            }
+            return { success: false, error: 'No previous checkpoint to discard back to' };
+          } catch (err) {
+            return { success: false, error: err.message };
+          } finally {
+            if (engine) engine.close();
+          }
+        });
+
+        ipcMain.handle('plugin:ensureInstalled', async () => {
+          const results = server._ensureCreativeIntegrations();
+          return { success: true, results };
         });
       }
 

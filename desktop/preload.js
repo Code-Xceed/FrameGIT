@@ -46,6 +46,14 @@ contextBridge.exposeInMainWorld('framegit', {
   switchBranch: (params) => ipcRenderer.invoke('project:switchBranch', params),
   createBranch: (params) => ipcRenderer.invoke('project:createBranch', params),
   getProjectDiff: (projectPath) => ipcRenderer.invoke('project:getDiff', projectPath),
+  getRemoteInfo: (projectPath) => ipcRenderer.invoke('project:getRemoteInfo', projectPath),
+  publishGitHub: (params) => ipcRenderer.invoke('project:publishGitHub', params),
+  pushRemote: (projectPath) => ipcRenderer.invoke('project:push', { projectPath }),
+  pullRemote: (projectPath) => ipcRenderer.invoke('project:pull', { projectPath }),
+  fetchRemote: (projectPath) => ipcRenderer.invoke('project:fetch', { projectPath }),
+  syncRemote: (projectPath) => ipcRenderer.invoke('project:sync', { projectPath }),
+  discardChanges: (projectPath) => ipcRenderer.invoke('project:discard', { projectPath }),
+  ensurePluginsInstalled: () => ipcRenderer.invoke('plugin:ensureInstalled'),
 
   // Creative Editor Integrations
   detectEditors: () => ipcRenderer.invoke('nle:detect'),

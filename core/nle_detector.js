@@ -268,9 +268,7 @@ class NleDetector {
       `sys.path.insert(0, r"${modulesDir}")`,
       'import framegit_resolve',
       'if __name__ == "__main__":',
-      '    bridge = framegit_resolve.FrameGitResolve()',
-      '    st = bridge.status()',
-      '    print("FrameGit Resolve Status:", st)',
+      '    framegit_resolve.main()',
       ''
     ].join('\n');
 
