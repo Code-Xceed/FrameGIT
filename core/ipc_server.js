@@ -101,17 +101,6 @@ class IPCServer {
    */
   start() {
     return new Promise((resolve, reject) => {
-      // Write HMAC token to .framegit/agent.auth
-      this.rotateToken();
-
-      // Setup 24h automatic token rotation
-      this.rotationTimer = setInterval(() => {
-        try {
-          this.rotateToken();
-        } catch (_) {}
-      }, 24 * 60 * 60 * 1000);
-      this.rotationTimer.unref();
-
       this.server = http.createServer(async (req, res) => {
         // Enable CORS for Adobe UXP
         res.setHeader('Access-Control-Allow-Origin', '*');
@@ -181,6 +170,21 @@ class IPCServer {
 
       this.server.on('error', reject);
       this.server.listen(this.port, this.host, () => {
+        const addr = this.server.address();
+        if (addr && typeof addr === 'object' && addr.port) {
+          this.port = addr.port;
+        }
+        // Write HMAC token to .framegit/agent.auth
+        this.rotateToken();
+
+        // Setup 24h automatic token rotation
+        this.rotationTimer = setInterval(() => {
+          try {
+            this.rotateToken();
+          } catch (_) {}
+        }, 24 * 60 * 60 * 1000);
+        this.rotationTimer.unref();
+
         resolve(this.port);
       });
     });

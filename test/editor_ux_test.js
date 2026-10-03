@@ -53,7 +53,7 @@ async function runEditorUxTest() {
   const cloudClient = new CloudClient();
   const syncEngine = new SyncEngine(WORKSPACE_DIR, cloudClient, engine.db);
 
-  const ipcServer = new IPCServer(engine, syncEngine, 41793);
+  const ipcServer = new IPCServer(engine, syncEngine, 0);
   const port = await ipcServer.start();
   console.log(`    ✓ IPC Server listening on 127.0.0.1:${port}`);
   console.log(`    ✓ Auth token written to .framegit/agent.auth\n`);

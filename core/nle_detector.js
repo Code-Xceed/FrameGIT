@@ -193,14 +193,22 @@ class NleDetector {
   }
 
   /**
-   * Check if FrameGit UXP plugin is deployed for Premiere.
+   * Get the target CEP extensions path for Adobe Premiere Pro.
+   * @returns {string}
+   */
+  getPremiereCepPluginDir() {
+    return path.join(this.appDataDir, 'Adobe', 'CEP', 'extensions', 'io.framegit.panel');
+  }
+
+  /**
+   * Check if FrameGit plugin is deployed for Premiere (CEP or UXP).
    * @param {string|number} [versionYear]
    * @returns {boolean}
    */
   isPremierePluginInstalled(versionYear = '') {
-    const targetDir = this.getPremiereUxpPluginDir();
-    const manifestPath = path.join(targetDir, 'FrameGit', 'manifest.json');
-    return fs.existsSync(manifestPath);
+    const cepPath = path.join(this.getPremiereCepPluginDir(), 'CSXS', 'manifest.xml');
+    const uxpPath = path.join(this.getPremiereUxpPluginDir(), 'FrameGit', 'manifest.json');
+    return fs.existsSync(cepPath) || fs.existsSync(uxpPath);
   }
 
   /**
@@ -213,9 +221,9 @@ class NleDetector {
   }
 
   /**
-   * Install/Deploy Premiere Pro UXP extension files to user's AppData UXP plugin store.
+   * Install/Deploy Premiere Pro extension files to both CEP and UXP plugin stores.
    * @param {string} [sourcePluginDir] Path to plugin/premiere source directory
-   * @returns {{success: boolean, targetDir: string}}
+   * @returns {{success: boolean, targetDir: string, cepDir: string}}
    */
   installPremierePlugin(sourcePluginDir = null) {
     const src = sourcePluginDir || path.resolve(__dirname, '..', 'plugin', 'premiere');
@@ -225,15 +233,17 @@ class NleDetector {
 
     const targetBase = this.getPremiereUxpPluginDir();
     const targetDir = path.join(targetBase, 'FrameGit');
-
     fs.mkdirSync(targetDir, { recursive: true });
-
-    // Copy manifest, index.html, index.js, icons
     this._copyRecursive(src, targetDir);
+
+    const cepDir = this.getPremiereCepPluginDir();
+    fs.mkdirSync(cepDir, { recursive: true });
+    this._copyRecursive(src, cepDir);
 
     return {
       success: true,
-      targetDir
+      targetDir,
+      cepDir
     };
   }
 

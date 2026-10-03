@@ -83,26 +83,63 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
 
   let activeProjectPath = null;
 
-  function getPremiereActiveProjectPath() {
+  const csInterface = (typeof CSInterface !== 'undefined') ? new CSInterface() : null;
+
+  async function getPremiereActiveProjectPath() {
     try {
-      if (typeof app !== 'undefined' && app.project) {
-        if (app.project.path && app.project.path.trim()) {
-          return app.project.path;
-        }
+      if (typeof app !== 'undefined' && app.project && app.project.path && app.project.path.trim()) {
+        return app.project.path.trim();
       }
     } catch (_) {}
+
+    if (csInterface && typeof window !== 'undefined' && window.__adobe_cep__) {
+      return new Promise((resolve) => {
+        csInterface.evalScript('app.project ? app.project.path : ""', (res) => {
+          if (res && res !== 'ERR_NO_CEP' && res !== 'EvalScript error.' && res.trim()) {
+            resolve(res.trim());
+          } else {
+            resolve(null);
+          }
+        });
+      });
+    }
     return null;
   }
 
-  function getPremiereActiveProjectName() {
+  async function getPremiereActiveProjectName() {
     try {
-      if (typeof app !== 'undefined' && app.project) {
-        if (app.project.name && app.project.name.trim()) {
-          return app.project.name;
-        }
+      if (typeof app !== 'undefined' && app.project && app.project.name && app.project.name.trim()) {
+        return app.project.name.trim();
       }
     } catch (_) {}
+
+    if (csInterface && typeof window !== 'undefined' && window.__adobe_cep__) {
+      return new Promise((resolve) => {
+        csInterface.evalScript('app.project ? app.project.name : ""', (res) => {
+          if (res && res !== 'ERR_NO_CEP' && res !== 'EvalScript error.' && res.trim()) {
+            resolve(res.trim());
+          } else {
+            resolve(null);
+          }
+        });
+      });
+    }
     return null;
+  }
+
+  async function flushPremiereProjectSave() {
+    try {
+      if (typeof app !== 'undefined' && app.project && typeof app.project.save === 'function') {
+        app.project.save();
+        return;
+      }
+    } catch (_) {}
+
+    if (csInterface && typeof window !== 'undefined' && window.__adobe_cep__) {
+      return new Promise((resolve) => {
+        csInterface.evalScript('if (app.project && typeof app.project.save === "function") app.project.save();', () => resolve());
+      });
+    }
   }
 
   function escapeHtml(str) {
@@ -115,8 +152,8 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   }
 
   async function refreshUI() {
-    const premierePath = getPremiereActiveProjectPath();
-    const premiereName = getPremiereActiveProjectName();
+    const premierePath = await getPremiereActiveProjectPath();
+    const premiereName = await getPremiereActiveProjectName();
 
     try {
       const isOnline = await client.checkHealth();
@@ -250,9 +287,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     btnCommit.textContent = 'Committing...';
     try {
       // Flush edits in Premiere Pro to disk first
-      if (typeof app !== 'undefined' && app.project && typeof app.project.save === 'function') {
-        app.project.save();
-      }
+      await flushPremiereProjectSave();
 
       await client.call('project.commit', {
         projectPath: activeProjectPath,
