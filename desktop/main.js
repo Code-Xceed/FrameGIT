@@ -528,6 +528,54 @@ class DesktopServer {
             return;
           }
 
+          if (pathname === '/api/desktop/branch/create' && req.method === 'POST') {
+            const body = await this._readBody(req);
+            const parsed = safeJsonParse(body, 'create branch request');
+            const { projectPath, branchName } = parsed;
+            if (!projectPath || !fs.existsSync(projectPath)) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: 'Project directory not found' }));
+              return;
+            }
+            let engine = null;
+            try {
+              engine = this._getEngineForProject(projectPath);
+              engine.createBranch(branchName);
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: true, name: branchName }));
+            } catch (err) {
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: err.message }));
+            } finally {
+              if (engine) engine.close();
+            }
+            return;
+          }
+
+          if (pathname === '/api/desktop/branch/switch' && req.method === 'POST') {
+            const body = await this._readBody(req);
+            const parsed = safeJsonParse(body, 'switch branch request');
+            const { projectPath, branchName, force } = parsed;
+            if (!projectPath || !fs.existsSync(projectPath)) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: 'Project directory not found' }));
+              return;
+            }
+            let engine = null;
+            try {
+              engine = this._getEngineForProject(projectPath);
+              const result = engine.switchBranch(branchName, force || false);
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: true, branch: branchName, commitHash: result.commitHash }));
+            } catch (err) {
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: err.message }));
+            } finally {
+              if (engine) engine.close();
+            }
+            return;
+          }
+
           if (pathname === '/api/desktop/shell/reveal' && req.method === 'POST') {
             const body = await this._readBody(req);
             const parsed = safeJsonParse(body, 'shell reveal request');
@@ -1336,14 +1384,18 @@ async function main() {
         try {
           const iconPath = path.join(__dirname, '..', 'plugin', 'premiere', 'icons', 'icon-48.png');
           if (fs.existsSync(iconPath)) {
-            const tray = new Tray(iconPath);
-            const contextMenu = Menu.buildFromTemplate([
-              { label: 'Open FrameGit Desktop', click: () => win.show() },
-              { type: 'separator' },
-              { label: 'Quit', click: () => app.quit() }
-            ]);
-            tray.setToolTip('FrameGit Desktop');
-            tray.setContextMenu(contextMenu);
+            const { nativeImage } = electron;
+            const trayImg = nativeImage.createFromPath(iconPath);
+            if (!trayImg.isEmpty()) {
+              const tray = new Tray(trayImg);
+              const contextMenu = Menu.buildFromTemplate([
+                { label: 'Open FrameGit Desktop', click: () => win.show() },
+                { type: 'separator' },
+                { label: 'Quit', click: () => app.quit() }
+              ]);
+              tray.setToolTip('FrameGit Desktop');
+              tray.setContextMenu(contextMenu);
+            }
           }
         } catch (_) {}
       });
@@ -1362,7 +1414,7 @@ async function main() {
   }
 }
 
-if (require.main === module) {
+if (require.main === module || (process.versions && process.versions.electron && !process.env.FRAMEGIT_TEST_RUN)) {
   main();
 }
 

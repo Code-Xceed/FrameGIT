@@ -82,8 +82,16 @@ const api = window.framegit || {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params)
   })).json(),
-  switchBranch: async () => ({ success: false, error: 'Not supported in web browser mode' }),
-  createBranch: async () => ({ success: false, error: 'Not supported in web browser mode' }),
+  switchBranch: async (params) => (await fetch('/api/desktop/branch/switch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params)
+  })).json(),
+  createBranch: async (params) => (await fetch('/api/desktop/branch/create', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params)
+  })).json(),
   getProjectDiff: async (path) => (await fetch('/api/desktop/project/diff', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
