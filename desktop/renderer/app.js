@@ -354,10 +354,17 @@ function render() {
   const app = $('app');
   if (!app) return;
 
+  const msgDraft = $('checkpoint-msg-input')?.value;
+  const isMsgFocused = document.activeElement && document.activeElement.id === 'checkpoint-msg-input';
+
   if (state.isSetupCompleted) {
     app.className = 'app-container desktop-mode';
     renderDashboard(app);
     attachEventListeners();
+    if (msgDraft !== undefined && $('checkpoint-msg-input') && !$('checkpoint-msg-input').value) {
+      $('checkpoint-msg-input').value = msgDraft;
+      if (isMsgFocused) $('checkpoint-msg-input').focus();
+    }
     return;
   }
 
@@ -2143,9 +2150,29 @@ async function init() {
           state.isOffline = Boolean(ref.offline);
           updateAccountHeader();
           updateHeader(state.isOffline ? 'Offline (Local-First)' : 'Service Active', !state.isOffline);
-        }
-      }).catch(() => {});
-    }
+    // Live Working Tree Poller: Auto-detects timeline modifications in real-time
+    setInterval(async () => {
+      if (state.activeProject && state.activeProject.path && !state.isCommitting) {
+        try {
+          const details = await api.inspectProject(state.activeProject.path);
+          if (details && details.success) {
+            const currentCount = state.activeProject.status && state.activeProject.status.changes ? state.activeProject.status.changes.length : 0;
+            const newCount = details.status && details.status.changes ? details.status.changes.length : 0;
+            const currentHistLen = state.activeProject.history ? state.activeProject.history.length : 0;
+            const newHistLen = details.history ? details.history.length : 0;
+            const branchChanged = (details.currentBranch || 'main') !== (state.activeProject.currentBranch || 'main');
+
+            if (currentCount !== newCount || currentHistLen !== newHistLen || branchChanged) {
+              state.activeProject.status = details.status || {};
+              state.activeProject.branches = details.branches || [];
+              state.activeProject.history = details.history || [];
+              state.activeProject.currentBranch = details.currentBranch || 'main';
+              render();
+            }
+          }
+        } catch (_) {}
+      }
+    }, 2500);
   } catch (err) {
     console.error('Failed to initialize:', err);
     state.isSetupCompleted = false;

@@ -145,7 +145,14 @@ class CASStorage {
     // Verify integrity
     const computedHash = Hasher.hash(payload);
     if (computedHash !== hash) {
-      throw new IntegrityError(hash, `Hash mismatch on CAS read: expected ${hash}, computed ${computedHash}`);
+      let matchesLegacy = false;
+      try {
+        const blakeHash = crypto.createHash('blake2s256').update(payload).digest('hex');
+        if (blakeHash === hash) matchesLegacy = true;
+      } catch (_) {}
+      if (!matchesLegacy) {
+        throw new IntegrityError(hash, `Hash mismatch on CAS read: expected ${hash}, computed ${computedHash}`);
+      }
     }
 
     return { type, payload };
