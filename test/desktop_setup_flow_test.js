@@ -82,7 +82,8 @@ test('Desktop App — First-Run Setup & Local-First Flow', async (t) => {
 
   await t.test('6. Desktop Server HTTP API for Setup Flow', async () => {
     const testPort = 41798;
-    const server = new DesktopServer(testPort);
+    const testStore = new UserStore({ dataDir: tmpDir });
+    const server = new DesktopServer(testPort, { userStore: testStore });
     await server.start();
 
     try {

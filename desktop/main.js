@@ -30,8 +30,10 @@ function escapeHtml(str) {
 }
 
 class DesktopServer {
-  constructor(port = 41793) {
+  constructor(port = 41793, options = {}) {
     this.port = port;
+    this.options = options;
+    this.userStore = options.userStore || getDefaultUserStore();
     this.server = null;
     this.nleDetector = new NleDetector();
     this.projectCatalog = new ProjectCatalog();
@@ -68,6 +70,7 @@ class DesktopServer {
 
         const url = new URL(req.url, `http://127.0.0.1:${this.port}`);
         const pathname = url.pathname;
+        const userStore = this.userStore;
 
         try {
           // 1. Health & Heartbeat
@@ -124,7 +127,7 @@ class DesktopServer {
             const body = await this._readBody(req);
             const parsed = safeJsonParse(body, 'startup config');
             const ok = ProcessMonitor.configureWindowsStartup(parsed.enable !== false);
-            const userStore = getDefaultUserStore();
+            // uses server userStore
             userStore.updateSettings({ autoStartBackgroundService: parsed.enable !== false });
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: ok }));
@@ -133,7 +136,7 @@ class DesktopServer {
 
           // 3b. First-Run Setup & Local-First User Store Endpoints
           if (pathname === '/api/setup/status' && req.method === 'GET') {
-            const userStore = getDefaultUserStore();
+            // uses server userStore
             const settings = userStore.getSettings();
             const auth = userStore.getGitHubAuth();
             res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -186,7 +189,7 @@ class DesktopServer {
           if (pathname === '/api/setup/save-github' && req.method === 'POST') {
             const body = await this._readBody(req);
             const parsed = safeJsonParse(body, 'save github request');
-            const userStore = getDefaultUserStore();
+            // uses server userStore
             userStore.saveGitHubAuth(parsed || {});
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: true }));
@@ -194,7 +197,7 @@ class DesktopServer {
           }
 
           if (pathname === '/api/setup/skip-github' && req.method === 'POST') {
-            const userStore = getDefaultUserStore();
+            // uses server userStore
             userStore.clearGitHubAuth();
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: true }));
@@ -204,7 +207,7 @@ class DesktopServer {
           if (pathname === '/api/setup/complete' && req.method === 'POST') {
             const body = await this._readBody(req);
             const parsed = safeJsonParse(body, 'complete setup request');
-            const userStore = getDefaultUserStore();
+            // uses server userStore
             userStore.completeSetup(parsed || {});
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: true }));
@@ -212,7 +215,7 @@ class DesktopServer {
           }
 
           if (pathname === '/api/setup/reset' && req.method === 'POST') {
-            const userStore = getDefaultUserStore();
+            // uses server userStore
             userStore.resetSetup();
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: true }));
@@ -220,7 +223,7 @@ class DesktopServer {
           }
 
           if (pathname === '/api/setup/start-oauth' && req.method === 'POST') {
-            const userStore = getDefaultUserStore();
+            // uses server userStore
             const ghConfig = userStore.getGitHubConfig();
             const auth = new GitHubAuth({ clientId: ghConfig.clientId });
             const crypto = require('node:crypto');
@@ -271,7 +274,7 @@ class DesktopServer {
             }
 
             try {
-              const userStore = getDefaultUserStore();
+              // uses server userStore
               const ghConfig = userStore.getGitHubConfig();
               const auth = new GitHubAuth({ clientId: ghConfig.clientId });
               const redirectUri = `http://127.0.0.1:${this.port}/oauth/callback`;
@@ -377,7 +380,7 @@ class DesktopServer {
 
           // 5b. Project Management & Account Endpoints (Full Parity with Native Electron)
           if (pathname === '/api/desktop/projects/tracked' && req.method === 'GET') {
-            const userStore = getDefaultUserStore();
+            // uses server userStore
             const settings = userStore.getSettings();
             const list = (settings.trackedProjects || []).filter(p => fs.existsSync(p));
             const projects = list.map(p => {
@@ -446,11 +449,11 @@ class DesktopServer {
             let engine = null;
             try {
               engine = this._getEngineForProject(projectPath);
-              const userStore = getDefaultUserStore();
+              // uses server userStore
               const auth = userStore.getGitHubAuth();
-              const author = auth && auth.user ? {
+              const author = auth && auth.user && (auth.user.name || auth.user.username) ? {
                 name: auth.user.name || auth.user.username,
-                email: auth.user.email || `${auth.user.username}@users.noreply.github.com`
+                email: auth.user.email || `${auth.user.username || 'editor'}@users.noreply.github.com`
               } : null;
               const commitRes = await engine.commit(message || 'Timeline checkpoint', author);
               res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -490,7 +493,7 @@ class DesktopServer {
           }
 
           if (pathname === '/api/auth/sign-out' && req.method === 'POST') {
-            const userStore = getDefaultUserStore();
+            // uses server userStore
             userStore.clearGitHubAuth();
             userStore.resetSetup();
             res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -499,7 +502,7 @@ class DesktopServer {
           }
 
           if (pathname === '/api/auth/refresh-profile' && req.method === 'GET') {
-            const userStore = getDefaultUserStore();
+            // uses server userStore
             const auth = userStore.getGitHubAuth();
             if (!auth || !auth.hasToken || !auth.token) {
               res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -544,7 +547,7 @@ class DesktopServer {
           }
 
           if (pathname === '/api/auth/sync-git' && req.method === 'POST') {
-            const userStore = getDefaultUserStore();
+            // uses server userStore
             const auth = userStore.getGitHubAuth();
             if (!auth || !auth.user || (!auth.user.username && !auth.user.login)) {
               res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -707,7 +710,7 @@ async function main() {
       const { app, BrowserWindow, Tray, Menu, ipcMain, shell } = electron;
 
       function registerIpcHandlers(server) {
-        const userStore = getDefaultUserStore();
+        const userStore = server.userStore || getDefaultUserStore();
         const nleDetector = new NleDetector();
 
         ipcMain.handle('setup:getStatus', async () => {
@@ -1132,9 +1135,9 @@ async function main() {
           try {
             engine = server._getEngineForProject(projectPath);
             const auth = userStore.getGitHubAuth();
-            const author = auth && auth.user ? {
+            const author = auth && auth.user && (auth.user.name || auth.user.username) ? {
               name: auth.user.name || auth.user.username,
-              email: auth.user.email || `${auth.user.username}@users.noreply.github.com`
+              email: auth.user.email || `${auth.user.username || 'editor'}@users.noreply.github.com`
             } : null;
             const res = await engine.commit(message || 'Timeline checkpoint', author);
             return { success: true, commit: res };

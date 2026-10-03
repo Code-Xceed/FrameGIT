@@ -73,7 +73,8 @@ test('Desktop Studio & Session Management Endpoints', async (t) => {
   fs.writeFileSync(path.join(projectDir, 'Commercial.prproj'), zlib.gzipSync(Buffer.from(createSamplePrprojXml(), 'utf8')));
 
   const testPort = 42888;
-  const server = new DesktopServer(testPort);
+  const testStore = new UserStore({ dataDir: tmpDir });
+  const server = new DesktopServer(testPort, { userStore: testStore });
   await server.start();
 
   t.after(() => {

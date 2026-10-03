@@ -64,7 +64,8 @@ test('GitHub 1-Click Browser OAuth Architecture & Storage', async (t) => {
 
   await t.test('3. DesktopServer handles /oauth/callback error states gracefully', async () => {
     const testPort = 41799;
-    const server = new DesktopServer(testPort);
+    const testStore = new UserStore({ dataDir: tmpDir });
+    const server = new DesktopServer(testPort, { userStore: testStore });
     await server.start();
 
     try {
