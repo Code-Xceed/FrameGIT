@@ -70,6 +70,19 @@ class PremiereParser {
       }
     }
 
+    // Build fast ObjectID dictionary to resolve subclips and media
+    const objectMap = new Map();
+    for (const [key, val] of Object.entries(premiereData)) {
+      if (key.startsWith('@_')) continue;
+      const items = Array.isArray(val) ? val : [val];
+      for (const item of items) {
+        if (item && typeof item === 'object') {
+          const id = item['@_ObjectID'];
+          if (id !== undefined) objectMap.set(String(id), { tag: key, node: item });
+        }
+      }
+    }
+
     // Extract Sequences
     const sequenceNodes = findNodes(premiereData, 'Sequence');
     for (const seq of sequenceNodes) {
@@ -156,6 +169,64 @@ class PremiereParser {
         }
 
         trackMap.get(trackKey).clips.push(clipObj);
+      }
+
+      // If no simplified TrackItem nodes found, parse native Premiere VideoClipTrackItem & AudioClipTrackItem nodes
+      if (trackMap.size === 0) {
+        const rawVideoItems = premiereData.VideoClipTrackItem ? (Array.isArray(premiereData.VideoClipTrackItem) ? premiereData.VideoClipTrackItem : [premiereData.VideoClipTrackItem]) : [];
+        const rawAudioItems = premiereData.AudioClipTrackItem ? (Array.isArray(premiereData.AudioClipTrackItem) ? premiereData.AudioClipTrackItem : [premiereData.AudioClipTrackItem]) : [];
+
+        if (rawVideoItems.length > 0) {
+          const vKey = 'video_1_VIDEO 1';
+          trackMap.set(vKey, { id: vKey, type: 'video', index: 1, name: 'VIDEO 1', clips: [] });
+          for (let vi = 0; vi < rawVideoItems.length; vi++) {
+            const item = rawVideoItems[vi];
+            const clipTrack = item.ClipTrackItem || item;
+            const trackItem = clipTrack.TrackItem || {};
+            const subClipRef = clipTrack.SubClip ? clipTrack.SubClip['@_ObjectRef'] : null;
+            let clipName = 'Video Clip ' + (vi + 1);
+            if (subClipRef && objectMap.has(String(subClipRef))) {
+              const sub = objectMap.get(String(subClipRef)).node;
+              clipName = sub.Name || clipName;
+            }
+            trackMap.get(vKey).clips.push({
+              id: String(item['@_ObjectID'] || ('vc_' + vi)),
+              name: String(clipName),
+              mediaId: String(subClipRef || ''),
+              startTicks: String(trackItem.Start || '0'),
+              endTicks: String(trackItem.End || '0'),
+              inPointTicks: String(trackItem.In || '0'),
+              outPointTicks: String(trackItem.End || '0'),
+              effects: []
+            });
+          }
+        }
+
+        if (rawAudioItems.length > 0) {
+          const aKey = 'audio_1_AUDIO 1';
+          trackMap.set(aKey, { id: aKey, type: 'audio', index: 1, name: 'AUDIO 1', clips: [] });
+          for (let ai = 0; ai < rawAudioItems.length; ai++) {
+            const item = rawAudioItems[ai];
+            const clipTrack = item.ClipTrackItem || item;
+            const trackItem = clipTrack.TrackItem || {};
+            const subClipRef = clipTrack.SubClip ? clipTrack.SubClip['@_ObjectRef'] : null;
+            let clipName = 'Audio Clip ' + (ai + 1);
+            if (subClipRef && objectMap.has(String(subClipRef))) {
+              const sub = objectMap.get(String(subClipRef)).node;
+              clipName = sub.Name || clipName;
+            }
+            trackMap.get(aKey).clips.push({
+              id: String(item['@_ObjectID'] || ('ac_' + ai)),
+              name: String(clipName),
+              mediaId: String(subClipRef || ''),
+              startTicks: String(trackItem.Start || '0'),
+              endTicks: String(trackItem.End || '0'),
+              inPointTicks: String(trackItem.In || '0'),
+              outPointTicks: String(trackItem.End || '0'),
+              effects: []
+            });
+          }
+        }
       }
 
       sequenceObj.tracks = Array.from(trackMap.values());

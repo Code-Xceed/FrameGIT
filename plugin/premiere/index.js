@@ -94,7 +94,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
 
     if (csInterface && typeof window !== 'undefined' && window.__adobe_cep__) {
       return new Promise((resolve) => {
-        csInterface.evalScript('app.project ? app.project.path : ""', (res) => {
+        csInterface.evalScript('(function() { try { return (app.project && app.project.path) ? app.project.path : ""; } catch(e) { return ""; } })()', (res) => {
           if (res && res !== 'ERR_NO_CEP' && res !== 'EvalScript error.' && res.trim()) {
             resolve(res.trim());
           } else {
@@ -115,7 +115,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
 
     if (csInterface && typeof window !== 'undefined' && window.__adobe_cep__) {
       return new Promise((resolve) => {
-        csInterface.evalScript('app.project ? app.project.name : ""', (res) => {
+        csInterface.evalScript('(function() { try { return (app.project && app.project.name) ? app.project.name : ""; } catch(e) { return ""; } })()', (res) => {
           if (res && res !== 'ERR_NO_CEP' && res !== 'EvalScript error.' && res.trim()) {
             resolve(res.trim());
           } else {
@@ -137,7 +137,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
 
     if (csInterface && typeof window !== 'undefined' && window.__adobe_cep__) {
       return new Promise((resolve) => {
-        csInterface.evalScript('if (app.project && typeof app.project.save === "function") app.project.save();', () => resolve());
+        csInterface.evalScript('(function() { try { if (app.project && typeof app.project.save === "function") { app.project.save(); return "1"; } } catch(e){} return "0"; })()', () => resolve());
       });
     }
   }
@@ -352,7 +352,13 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   });
 
   btnRefresh?.addEventListener('click', async () => {
-    await refreshUI();
+    btnRefresh.textContent = '…';
+    try {
+      await flushPremiereProjectSave();
+      await refreshUI();
+    } finally {
+      btnRefresh.textContent = '↻';
+    }
   });
 
   btnDiff?.addEventListener('click', async () => {
