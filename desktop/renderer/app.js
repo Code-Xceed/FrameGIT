@@ -62,6 +62,11 @@ const api = window.framegit || {
     return { canceled: false, path: p.trim() };
   },
   getTrackedProjects: async () => (await fetch('/api/desktop/projects/tracked')).json(),
+  removeTrackedProject: async (path) => (await fetch('/api/desktop/project/remove', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path })
+  })).json(),
   inspectProject: async (path) => (await fetch('/api/desktop/project/inspect', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -72,9 +77,26 @@ const api = window.framegit || {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params)
   })).json(),
+  restoreCheckpoint: async (params) => (await fetch('/api/desktop/project/restore', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params)
+  })).json(),
   switchBranch: async () => ({ success: false, error: 'Not supported in web browser mode' }),
   createBranch: async () => ({ success: false, error: 'Not supported in web browser mode' }),
   getProjectDiff: async (path) => (await fetch('/api/desktop/project/diff', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path })
+  })).json(),
+
+  // System Shell Utilities
+  showItemInFolder: async (path) => (await fetch('/api/desktop/shell/reveal', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path })
+  })).json(),
+  openPath: async (path) => (await fetch('/api/desktop/shell/open', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path })
@@ -112,6 +134,8 @@ const state = {
   oauthConfig: { clientId: '', hasSecret: false },
   trackedProjects: [],
   activeProject: null,
+  activeFilter: 'all', // 'all' | 'premiere' | 'resolve'
+  searchQuery: '',
   isOffline: false
 };
 
@@ -203,18 +227,96 @@ function updateHeader(statusText, isOnline = false) {
   `;
 }
 
+function updateTopbarNavigation() {
+  const contextSection = $('topbar-context-section');
+  const bridgesGroup = $('header-bridges-group');
+  if (!contextSection) return;
+
+  if (!state.isSetupCompleted) {
+    contextSection.style.display = 'none';
+    if (bridgesGroup) bridgesGroup.style.display = 'none';
+    return;
+  }
+
+  contextSection.style.display = 'flex';
+  if (bridgesGroup) {
+    bridgesGroup.style.display = 'flex';
+    const hasPr = state.editors.some(e => e.family === 'premiere');
+    const hasDr = state.editors.some(e => e.family === 'resolve');
+    const dotPr = $('dot-bridge-pr');
+    const dotDr = $('dot-bridge-dr');
+    if (dotPr) dotPr.className = `bridge-dot ${hasPr ? 'active' : ''}`;
+    if (dotDr) dotDr.className = `bridge-dot ${hasDr ? 'active' : ''}`;
+  }
+
+  // Update Project Switcher Label
+  const projectLabel = $('topbar-project-label');
+  if (projectLabel) {
+    projectLabel.textContent = state.activeProject ? state.activeProject.name : 'All Projects';
+  }
+
+  // Update Branch Switcher
+  const branchAnchor = $('topbar-branch-anchor');
+  const branchLabel = $('topbar-branch-label');
+  if (branchAnchor && branchLabel) {
+    if (state.activeProject) {
+      branchAnchor.style.display = 'block';
+      branchLabel.textContent = state.activeProject.currentBranch || 'main';
+    } else {
+      branchAnchor.style.display = 'none';
+    }
+  }
+
+  // Populate Project Switcher Dropdown List
+  const projListEl = $('topbar-project-dropdown-list');
+  if (projListEl) {
+    let itemsHtml = `
+      <button class="dropdown-item ${!state.activeProject ? 'active' : ''}" data-nav-target="home">
+        <span>🏠 All Projects</span>
+        <span class="sidebar-badge">${state.trackedProjects.length}</span>
+      </button>
+    `;
+    state.trackedProjects.forEach(p => {
+      const isSelected = state.activeProject && state.activeProject.path === p.path;
+      itemsHtml += `
+        <button class="dropdown-item ${isSelected ? 'active' : ''}" data-open-project="${escapeHtml(p.path)}">
+          <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 170px;">${escapeHtml(p.name)}</span>
+          <span class="editor-badge-icon ${p.type === 'premiere' ? 'pr' : (p.type === 'resolve' ? 'dr' : '')}">${p.type === 'premiere' ? 'Pr' : (p.type === 'resolve' ? 'Dr' : 'FG')}</span>
+        </button>
+      `;
+    });
+    projListEl.innerHTML = itemsHtml;
+  }
+
+  // Populate Branch Switcher Dropdown List
+  const branchListEl = $('topbar-branch-dropdown-list');
+  if (branchListEl && state.activeProject) {
+    const branches = state.activeProject.branches || ['main'];
+    const curBranch = state.activeProject.currentBranch || 'main';
+    branchListEl.innerHTML = branches.map(b => `
+      <button class="dropdown-item ${b === curBranch ? 'active' : ''}" data-switch-branch="${escapeHtml(b)}">
+        <span>🌿 ${escapeHtml(b)}</span>
+        ${b === curBranch ? '<span>✓</span>' : ''}
+      </button>
+    `).join('');
+  }
+}
+
 // 3. Main Render Router
 function render() {
   const app = $('app');
   if (!app) return;
 
   if (state.isSetupCompleted) {
+    app.className = 'app-container desktop-mode';
     renderDashboard(app);
     attachEventListeners();
     return;
   }
 
+  app.className = 'app-container';
   updateHeader(`Setup ${state.step}/3`);
+  updateTopbarNavigation();
 
   app.innerHTML = `
     <div class="card">
@@ -473,136 +575,362 @@ function renderEditorTilesHtml() {
 function renderDashboard(app) {
   updateHeader(state.isOffline ? 'Offline (Local-First)' : 'Service Active', !state.isOffline);
   updateAccountHeader();
+  updateTopbarNavigation();
 
   const u = state.user || {};
-  const name = u.name || (u.login ? `@${u.login}` : 'Editor');
+  const userName = u.name || (u.login ? `@${u.login}` : 'Editor');
+  const premiereCount = state.trackedProjects.filter(p => p.type === 'premiere').length;
+  const resolveCount = state.trackedProjects.filter(p => p.type === 'resolve').length;
+
+  // Filter projects by searchQuery and activeFilter
+  let filteredProjects = state.trackedProjects.slice();
+  if (state.activeFilter === 'premiere') {
+    filteredProjects = filteredProjects.filter(p => p.type === 'premiere');
+  } else if (state.activeFilter === 'resolve') {
+    filteredProjects = filteredProjects.filter(p => p.type === 'resolve');
+  }
+  if (state.searchQuery) {
+    const q = state.searchQuery.toLowerCase();
+    filteredProjects = filteredProjects.filter(p => 
+      p.name.toLowerCase().includes(q) || p.path.toLowerCase().includes(q)
+    );
+  }
+
+  const sidebarHtml = `
+    <aside class="desktop-sidebar">
+      <div class="sidebar-top">
+        <div class="sidebar-section">
+          <div class="sidebar-section-title">Workspace</div>
+          <div class="sidebar-nav-item ${!state.activeProject && state.activeFilter === 'all' ? 'active' : ''}" id="nav-filter-all">
+            <div class="sidebar-nav-label">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="7" height="7"></rect>
+                <rect x="14" y="3" width="7" height="7"></rect>
+                <rect x="14" y="14" width="7" height="7"></rect>
+                <rect x="3" y="14" width="7" height="7"></rect>
+              </svg>
+              <span>All Projects</span>
+            </div>
+            <span class="sidebar-badge">${state.trackedProjects.length}</span>
+          </div>
+
+          <div class="sidebar-nav-item ${!state.activeProject && state.activeFilter === 'premiere' ? 'active' : ''}" id="nav-filter-pr">
+            <div class="sidebar-nav-label">
+              <span class="editor-badge-icon pr">Pr</span>
+              <span>Premiere Pro</span>
+            </div>
+            <span class="sidebar-badge">${premiereCount}</span>
+          </div>
+
+          <div class="sidebar-nav-item ${!state.activeProject && state.activeFilter === 'resolve' ? 'active' : ''}" id="nav-filter-dr">
+            <div class="sidebar-nav-label">
+              <span class="editor-badge-icon dr">Dr</span>
+              <span>DaVinci Resolve</span>
+            </div>
+            <span class="sidebar-badge">${resolveCount}</span>
+          </div>
+        </div>
+
+        <button class="sidebar-btn-add" id="btn-sidebar-add-project">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 5v14M5 12h14"></path>
+          </svg>
+          <span>Track Project</span>
+        </button>
+
+        ${state.trackedProjects.length ? `
+          <div class="sidebar-section">
+            <div class="sidebar-section-title">Quick Switch</div>
+            ${state.trackedProjects.slice(0, 8).map(p => `
+              <div class="sidebar-nav-item ${state.activeProject && state.activeProject.path === p.path ? 'active' : ''} btn-open-tracked" data-project-path="${escapeHtml(p.path)}">
+                <div class="sidebar-nav-label" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 190px;">
+                  <span class="editor-badge-icon ${p.type === 'premiere' ? 'pr' : (p.type === 'resolve' ? 'dr' : '')}">${p.type === 'premiere' ? 'Pr' : (p.type === 'resolve' ? 'Dr' : 'FG')}</span>
+                  <span style="overflow: hidden; text-overflow: ellipsis;">${escapeHtml(p.name)}</span>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+      </div>
+
+      <div class="sidebar-bottom">
+        <div class="sidebar-status-card">
+          <div class="sidebar-status-header">
+            <span>Creative Bridges</span>
+            <span style="color: var(--text-success); font-size: 10px;">● Live</span>
+          </div>
+          <div class="sidebar-status-item">
+            <span>Premiere Pro UXP</span>
+            <span class="dot ${state.editors.some(e => e.family === 'premiere') ? 'active' : ''}"></span>
+          </div>
+          <div class="sidebar-status-item">
+            <span>DaVinci Resolve Bridge</span>
+            <span class="dot ${state.editors.some(e => e.family === 'resolve') ? 'active' : ''}"></span>
+          </div>
+        </div>
+
+        <div style="font-size: 10px; color: var(--text-muted); display: flex; align-items: center; justify-content: space-between; padding: 0 4px;">
+          <span>🔒 Vault Encrypted</span>
+          <span>%APPDATA%</span>
+        </div>
+      </div>
+    </aside>
+  `;
 
   if (!state.activeProject) {
+    // HOME / LAUNCHPAD VIEW
     app.innerHTML = `
-      <div class="workspace-shell">
-        <div class="workspace-hero">
-          <div class="workspace-hero-left">
-            <h2>Welcome back, ${escapeHtml(name)}</h2>
-            <p>Your local-first timeline version control studio is active and ready.</p>
-          </div>
-          <button class="btn btn-primary" id="btn-open-project" style="max-width: 170px;">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;">
-              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-            </svg>
-            Open Project
-          </button>
-        </div>
-
-        <div class="workspace-cards-grid">
-          <div class="workspace-action-card" id="card-open-project">
-            <div class="workspace-card-icon">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M12 5v14M5 12h14"></path>
-              </svg>
+      <div class="desktop-shell">
+        ${sidebarHtml}
+        <main class="desktop-main">
+          <div class="launchpad-content">
+            <div class="launchpad-header">
+              <div class="launchpad-profile-row">
+                <img class="launchpad-avatar" src="${escapeHtml(u.avatar_url || 'https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png')}" alt="avatar" />
+                <div class="launchpad-greeting">
+                  <h2>Welcome back, ${escapeHtml(userName)}</h2>
+                  <p>${state.trackedProjects.length} project(s) tracked • Local-first timeline version control ready</p>
+                </div>
+              </div>
+              <div class="launchpad-actions">
+                <button class="btn btn-primary" id="btn-open-project" style="height: 38px; padding: 0 16px; width: auto;">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                  </svg>
+                  <span>Open Video Project</span>
+                </button>
+              </div>
             </div>
-            <div class="workspace-card-title">Track New Project</div>
-            <div class="workspace-card-desc">Select any Premiere Pro (.prproj) or DaVinci Resolve (.drp) project to begin automatic version tracking.</div>
-          </div>
 
-          <div class="workspace-action-card" id="card-active-editors">
-            <div class="workspace-card-icon">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-              </svg>
-            </div>
-            <div class="workspace-card-title">Creative Editor Bridges</div>
-            <div class="workspace-card-desc">
-              ${state.editors.length ? state.editors.map(e => `${escapeHtml(e.name)}: Ready ✓`).join('<br>') : 'Monitoring Adobe Premiere Pro & DaVinci Resolve processes.'}
-            </div>
-          </div>
-        </div>
+            <div class="launchpad-toolbar">
+              <div class="search-box-container">
+                <svg class="search-box-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <input type="text" class="search-input" id="search-projects-input" placeholder="Search tracked projects by name or path..." value="${escapeHtml(state.searchQuery)}" />
+              </div>
 
-        ${state.trackedProjects && state.trackedProjects.length ? `
-          <div class="checkpoint-history-section" style="margin-top: 8px;">
-            <div class="history-header">Tracked Projects</div>
-            <div class="popover-menu-list">
-              ${state.trackedProjects.map(p => `
-                <div class="checkpoint-item-row btn-open-tracked" style="cursor: pointer;" data-project-path="${escapeHtml(p.path)}">
-                  <div class="checkpoint-left">
-                    <span class="editor-badge-icon ${p.type === 'premiere' ? 'pr' : (p.type === 'resolve' ? 'dr' : '')}">${p.type === 'premiere' ? 'Pr' : (p.type === 'resolve' ? 'Dr' : 'FG')}</span>
-                    <div>
-                      <div class="checkpoint-msg-text">${escapeHtml(p.name)}</div>
-                      <div class="checkpoint-author-info">${escapeHtml(p.path)}</div>
+              <div class="filter-chips-row">
+                <div class="filter-chip ${state.activeFilter === 'all' ? 'active' : ''}" data-filter="all">All (${state.trackedProjects.length})</div>
+                <div class="filter-chip ${state.activeFilter === 'premiere' ? 'active' : ''}" data-filter="premiere">Premiere (${premiereCount})</div>
+                <div class="filter-chip ${state.activeFilter === 'resolve' ? 'active' : ''}" data-filter="resolve">DaVinci (${resolveCount})</div>
+              </div>
+            </div>
+
+            <div class="projects-container">
+              ${filteredProjects.length ? filteredProjects.map(p => `
+                <div class="project-card">
+                  <div class="project-card-header">
+                    <div class="project-title-area">
+                      <span class="project-format-badge ${p.type === 'premiere' ? 'pr' : (p.type === 'resolve' ? 'dr' : 'generic')}">
+                        ${p.type === 'premiere' ? 'Pr' : (p.type === 'resolve' ? 'Dr' : 'FG')}
+                      </span>
+                      <div>
+                        <div class="project-name-heading">${escapeHtml(p.name)}</div>
+                      </div>
+                      <span class="project-branch-tag">🌿 main</span>
+                    </div>
+                    <span class="project-status-pill clean">● Ready</span>
+                  </div>
+
+                  <div class="project-card-body">
+                    <div class="project-path-code" title="${escapeHtml(p.path)}">${escapeHtml(p.path)}</div>
+                  </div>
+
+                  <div class="project-card-actions">
+                    <div class="project-meta-info">
+                      ${p.type === 'premiere' ? 'Adobe Premiere Pro Project' : (p.type === 'resolve' ? 'DaVinci Resolve Export (.drp)' : 'Video Project')}
+                    </div>
+                    <div class="project-buttons-group">
+                      <button class="btn-card-action btn-card-primary btn-open-tracked" data-project-path="${escapeHtml(p.path)}">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <polyline points="9 18 15 12 9 6"></polyline>
+                        </svg>
+                        <span>Open Workspace</span>
+                      </button>
+                      <button class="btn-card-action btn-card-secondary btn-reveal-path" data-path="${escapeHtml(p.projectFilePath || p.path)}" title="Reveal in Windows Explorer">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                        </svg>
+                        <span>Explorer</span>
+                      </button>
+                      <button class="btn-card-action btn-card-secondary btn-launch-editor" data-path="${escapeHtml(p.projectFilePath || p.path)}" title="Open in creative application">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                        </svg>
+                        <span>${p.type === 'premiere' ? 'Open in Premiere' : (p.type === 'resolve' ? 'Open in Resolve' : 'Launch File')}</span>
+                      </button>
+                      <button class="btn-card-action btn-card-danger btn-remove-tracked" data-project-path="${escapeHtml(p.path)}" title="Remove project from FrameGit tracking">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <polyline points="3 6 5 6 21 6"></polyline>
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        </svg>
+                      </button>
                     </div>
                   </div>
-                  <button class="btn btn-secondary" style="padding: 4px 12px; font-size: 11px;">Open</button>
                 </div>
-              `).join('')}
+              `).join('') : `
+                <div class="empty-launchpad">
+                  <div class="empty-launchpad-icon">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                  </div>
+                  <h3>${state.searchQuery ? 'No matching projects found' : 'No tracked video projects yet'}</h3>
+                  <p>${state.searchQuery ? `No projects match "${escapeHtml(state.searchQuery)}". Clear the search or track a new project.` : 'Click "Open Video Project" to track your first Premiere Pro (.prproj) or DaVinci Resolve (.drp) project.'}</p>
+                  <button class="btn btn-primary" id="btn-empty-add-project" style="max-width: 200px; margin-top: 8px;">
+                    ${state.searchQuery ? 'Clear Search Filter' : '+ Track Video Project'}
+                  </button>
+                </div>
+              `}
             </div>
           </div>
-        ` : `
-          <div class="empty-workspace" style="margin-top: 8px;">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-            </svg>
-            <p>No projects tracked yet. Click "Open Project" or open a project in Premiere Pro / DaVinci Resolve.</p>
-          </div>
-        `}
+        </main>
       </div>
     `;
   } else {
-    // Project is active!
+    // PROJECT STUDIO VIEW
     const proj = state.activeProject;
     const isDirty = proj.status && proj.status.hasChanges;
-    const changesCount = (proj.status && proj.status.changes) ? proj.status.changes.length : 0;
+    const changes = (proj.status && proj.status.changes) || [];
+    const changesCount = changes.length;
 
     app.innerHTML = `
-      <div class="workspace-shell">
-        <div class="active-project-card">
-          <div class="active-project-bar">
-            <div class="project-meta-left">
-              <span class="editor-badge-icon ${proj.type === 'premiere' ? 'pr' : (proj.type === 'resolve' ? 'dr' : '')}">${proj.type === 'premiere' ? 'Pr' : (proj.type === 'resolve' ? 'Dr' : 'FG')}</span>
-              <div>
-                <div class="project-name-text">${escapeHtml(proj.name)}</div>
-                <div class="project-path-text">${escapeHtml(proj.path)}</div>
-              </div>
-            </div>
-            <div style="display: flex; gap: 8px; align-items: center;">
-              <span class="panel-status-pill" style="font-size: 11px;">Branch: ${escapeHtml(proj.currentBranch || 'main')}</span>
-              <button class="btn btn-subtle" id="btn-close-project" style="padding: 4px 10px; font-size: 11px;">Close</button>
+      <div class="studio-layout">
+        <!-- Left Staging & Checkpoint Panel -->
+        <aside class="studio-staging-panel">
+          <button class="staging-nav-back" id="btn-back-to-home">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="19" y1="12" x2="5" y2="12"></line>
+              <polyline points="12 19 5 12 12 5"></polyline>
+            </svg>
+            <span>All Projects</span>
+          </button>
+
+          <div class="staging-project-header">
+            <span class="project-format-badge ${proj.type === 'premiere' ? 'pr' : (proj.type === 'resolve' ? 'dr' : 'generic')}">
+              ${proj.type === 'premiere' ? 'Pr' : (proj.type === 'resolve' ? 'Dr' : 'FG')}
+            </span>
+            <div class="staging-project-meta">
+              <h3>${escapeHtml(proj.name)}</h3>
+              <p>${escapeHtml(proj.path)}</p>
             </div>
           </div>
 
-          <div class="active-project-content">
-            <div style="display: flex; align-items: center; justify-content: space-between;">
-              <div style="display: flex; align-items: center; gap: 8px; font-size: 12px;">
-                <span class="status-dot ${isDirty ? '' : 'online'}"></span>
-                <span>${isDirty ? `${changesCount} timeline changes pending` : 'Working tree clean — Checkpoint up to date'}</span>
+          <!-- Staging / Working Tree Area -->
+          <div class="staging-section">
+            <div class="staging-section-title">
+              <span>Working Tree</span>
+              <span class="project-status-pill ${isDirty ? 'dirty' : 'clean'}">
+                ● ${isDirty ? `${changesCount} changes` : 'Clean'}
+              </span>
+            </div>
+
+            <div class="uncommitted-box">
+              <div class="uncommitted-status-row">
+                <span>${isDirty ? `${changesCount} uncommitted modifications` : 'Timeline is up to date'}</span>
+                <button class="btn btn-secondary" id="btn-show-diff" style="height: 26px; padding: 0 8px; font-size: 11px;">
+                  Visual Diff
+                </button>
               </div>
-              <button class="btn btn-secondary" id="btn-show-diff" style="padding: 4px 10px; font-size: 11px;">
-                View Visual Diff
+
+              ${isDirty ? `
+                <div class="changes-breakdown-list">
+                  ${changes.slice(0, 10).map(ch => `
+                    <div class="change-item-row">
+                      <span class="change-tag ${ch.type && ch.type.includes('add') ? 'add' : (ch.type && ch.type.includes('del') ? 'del' : 'mod')}">
+                        ${escapeHtml(ch.type || 'MOD')}
+                      </span>
+                      <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        ${escapeHtml(ch.description || ch.item || 'Timeline change')}
+                      </span>
+                    </div>
+                  `).join('')}
+                </div>
+              ` : `
+                <div style="font-size: 11px; color: var(--text-muted); padding: 4px 0;">
+                  No changes since last checkpoint. Save your project in Premiere/DaVinci to track edits.
+                </div>
+              `}
+            </div>
+          </div>
+
+          <!-- Checkpoint Creator Box -->
+          <div class="staging-section">
+            <div class="staging-section-title">
+              <span>Create Checkpoint</span>
+              <span style="font-size: 10px; color: var(--text-muted);">Ctrl + Enter</span>
+            </div>
+
+            <div class="checkpoint-box">
+              <textarea id="checkpoint-msg-input" placeholder="Describe checkpoint (e.g. Scene 2 rough cut, audio ducking, Lumetri grade)..."></textarea>
+              <div class="checkpoint-commit-footer">
+                <span class="commit-author-hint">Author: ${escapeHtml(userName)}</span>
+                <button class="btn btn-primary" id="btn-create-checkpoint" style="width: auto; height: 32px; padding: 0 14px; font-size: 12px;">
+                  Save Checkpoint
+                </button>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        <!-- Right Main Timeline History Feed -->
+        <main class="studio-history-panel">
+          <div class="history-topbar">
+            <div class="history-title-area">
+              <h2>Timeline History (${proj.history ? proj.history.length : 0})</h2>
+              <p>Branch: <strong style="color: var(--text-primary);">🌿 ${escapeHtml(proj.currentBranch || 'main')}</strong></p>
+            </div>
+
+            <div class="history-action-buttons">
+              <button class="btn btn-secondary btn-reveal-path" data-path="${escapeHtml(proj.projectFilePath || proj.path)}" style="height: 32px; padding: 0 12px; font-size: 12px;">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                </svg>
+                <span>Reveal in Explorer</span>
+              </button>
+              <button class="btn btn-secondary btn-launch-editor" data-path="${escapeHtml(proj.projectFilePath || proj.path)}" style="height: 32px; padding: 0 12px; font-size: 12px;">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                </svg>
+                <span>${proj.type === 'premiere' ? 'Open in Premiere' : (proj.type === 'resolve' ? 'Open in Resolve' : 'Open in Editor')}</span>
+              </button>
+              <button class="btn btn-secondary" id="btn-refresh-project" style="height: 32px; padding: 0 10px; font-size: 12px;" title="Refresh working tree">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                </svg>
               </button>
             </div>
-
-            <div class="checkpoint-creator-row">
-              <input type="text" class="checkpoint-text-input" id="checkpoint-msg-input" placeholder="Describe checkpoint (e.g. Scene 2 rough cut, audio ducking, Lumetri grade)..." />
-              <button class="btn btn-primary" id="btn-create-checkpoint" style="width: 140px;">Save Checkpoint</button>
-            </div>
-
-            <div class="checkpoint-history-section">
-              <div class="history-header">Timeline Checkpoints</div>
-              <div class="popover-menu-list">
-                ${proj.history && proj.history.length ? proj.history.map(c => `
-                  <div class="checkpoint-item-row">
-                    <div class="checkpoint-left">
-                      <span class="checkpoint-hash-tag">${escapeHtml((c.hash || '').slice(0, 8))}</span>
-                      <div>
-                        <div class="checkpoint-msg-text">${escapeHtml(c.message || 'Timeline checkpoint')}</div>
-                        <div class="checkpoint-author-info">${escapeHtml(c.author && c.author.name ? c.author.name : 'Editor')} • ${escapeHtml(new Date(c.timestamp || Date.now()).toLocaleTimeString())}</div>
-                      </div>
-                    </div>
-                    <button class="btn btn-subtle btn-restore-checkpoint" data-hash="${escapeHtml(c.hash)}" style="padding: 4px 10px; font-size: 11px;">Restore</button>
-                  </div>
-                `).join('') : '<div style="color: var(--text-muted); font-size: 12px; padding: 10px 0;">No checkpoints in this branch yet. Create your first checkpoint above.</div>'}
-              </div>
-            </div>
           </div>
-        </div>
+
+          <div class="timeline-feed">
+            ${proj.history && proj.history.length ? proj.history.map(c => {
+              const cHash = c.commitHash || c.hash || '';
+              const cTime = c.committedAt || c.timestamp || Date.now();
+              return `
+              <div class="checkpoint-timeline-card">
+                <div class="checkpoint-card-left">
+                  <span class="checkpoint-sha-badge">${escapeHtml(cHash.slice(0, 8))}</span>
+                  <div class="checkpoint-info">
+                    <h4>${escapeHtml(c.message || 'Timeline checkpoint')}</h4>
+                    <p>${escapeHtml(c.author && c.author.name ? c.author.name : userName)} • ${escapeHtml(new Date(cTime).toLocaleString())}</p>
+                  </div>
+                </div>
+
+                <div class="checkpoint-actions">
+                  <button class="btn btn-secondary btn-restore-checkpoint" data-hash="${escapeHtml(cHash)}" style="height: 30px; padding: 0 12px; font-size: 11px;">
+                    Restore
+                  </button>
+                </div>
+              </div>
+            `;}).join('') : `
+              <div class="empty-launchpad" style="padding: 40px 20px;">
+                <p>No checkpoints committed on branch "${escapeHtml(proj.currentBranch || 'main')}" yet.<br>Create your first checkpoint using the staging panel on the left.</p>
+              </div>
+            `}
+          </div>
+        </main>
       </div>
     `;
   }
@@ -840,10 +1168,129 @@ function attachEventListeners() {
       e.stopPropagation();
       const isVisible = accountPopover.style.display !== 'none';
       accountPopover.style.display = isVisible ? 'none' : 'flex';
+      const pdd = $('topbar-project-dropdown');
+      if (pdd) pdd.style.display = 'none';
+      const bdd = $('topbar-branch-dropdown');
+      if (bdd) bdd.style.display = 'none';
     };
   }
 
+  // Topbar Project Switcher Dropdown
+  const topbarProjBtn = $('topbar-project-btn');
+  const topbarProjDd = $('topbar-project-dropdown');
+  if (topbarProjBtn && topbarProjDd) {
+    topbarProjBtn.onclick = (e) => {
+      e.stopPropagation();
+      const isVis = topbarProjDd.style.display !== 'none';
+      topbarProjDd.style.display = isVis ? 'none' : 'flex';
+      const bdd = $('topbar-branch-dropdown');
+      if (bdd) bdd.style.display = 'none';
+      const ap = $('account-popover');
+      if (ap) ap.style.display = 'none';
+    };
+  }
 
+  // Topbar Branch Switcher Dropdown
+  const topbarBranchBtn = $('topbar-branch-btn');
+  const topbarBranchDd = $('topbar-branch-dropdown');
+  if (topbarBranchBtn && topbarBranchDd) {
+    topbarBranchBtn.onclick = (e) => {
+      e.stopPropagation();
+      const isVis = topbarBranchDd.style.display !== 'none';
+      topbarBranchDd.style.display = isVis ? 'none' : 'flex';
+      const pdd = $('topbar-project-dropdown');
+      if (pdd) pdd.style.display = 'none';
+      const ap = $('account-popover');
+      if (ap) ap.style.display = 'none';
+    };
+  }
+
+  // Header Brand Click -> Return to Home
+  const headerBrandBtn = $('header-brand-btn');
+  if (headerBrandBtn) {
+    headerBrandBtn.onclick = () => {
+      state.activeProject = null;
+      render();
+    };
+  }
+
+  // Nav target home from dropdown
+  document.querySelectorAll('[data-nav-target="home"]').forEach(el => {
+    el.onclick = () => {
+      state.activeProject = null;
+      const pdd = $('topbar-project-dropdown');
+      if (pdd) pdd.style.display = 'none';
+      render();
+    };
+  });
+
+  // Switch branch from dropdown
+  document.querySelectorAll('[data-switch-branch]').forEach(el => {
+    el.onclick = async (e) => {
+      e.stopPropagation();
+      const targetBranch = el.getAttribute('data-switch-branch');
+      const bdd = $('topbar-branch-dropdown');
+      if (bdd) bdd.style.display = 'none';
+      if (!state.activeProject || !targetBranch || targetBranch === state.activeProject.currentBranch) return;
+      try {
+        const res = await api.switchBranch({
+          projectPath: state.activeProject.path,
+          branchName: targetBranch,
+          force: false
+        });
+        if (res && res.success) {
+          showToast(`Switched to branch: ${targetBranch}`);
+          await openProjectByPath(state.activeProject.path);
+        } else {
+          showToast(`Cannot switch branch: ${res.error || 'Uncommitted changes detected'}`);
+        }
+      } catch (err) {
+        showToast(`Error: ${err.message}`);
+      }
+    };
+  });
+
+  // Create new branch from dropdown
+  const newBranchBtn = $('topbar-dropdown-new-branch');
+  if (newBranchBtn && state.activeProject) {
+    newBranchBtn.onclick = async (e) => {
+      e.stopPropagation();
+      const bdd = $('topbar-branch-dropdown');
+      if (bdd) bdd.style.display = 'none';
+      const branchName = prompt('Enter new branch name (e.g. director-cut, color-grade):');
+      if (branchName && branchName.trim()) {
+        try {
+          const res = await api.createBranch({
+            projectPath: state.activeProject.path,
+            branchName: branchName.trim()
+          });
+          if (res && res.success) {
+            showToast(`Branch created: ${branchName.trim()}`);
+            await api.switchBranch({
+              projectPath: state.activeProject.path,
+              branchName: branchName.trim()
+            });
+            await openProjectByPath(state.activeProject.path);
+          } else {
+            showToast(`Error creating branch: ${res.error || 'Unknown error'}`);
+          }
+        } catch (err) {
+          showToast(`Error: ${err.message}`);
+        }
+      }
+    };
+  }
+
+  // Open project from topbar dropdown
+  document.querySelectorAll('[data-open-project]').forEach(el => {
+    el.onclick = async (e) => {
+      e.stopPropagation();
+      const path = el.getAttribute('data-open-project');
+      const pdd = $('topbar-project-dropdown');
+      if (pdd) pdd.style.display = 'none';
+      if (path) await openProjectByPath(path);
+    };
+  });
 
   // Sync Git Config
   const syncGitBtn = $('menu-sync-git');
@@ -916,9 +1363,7 @@ function attachEventListeners() {
     };
   }
 
-  // Open Project / Pick Directory
-  const openProjBtn = $('btn-open-project');
-  const openCard = $('card-open-project');
+  // Global Handlers for Opening Projects
   const handleOpenPicker = async () => {
     try {
       const res = await api.pickProject();
@@ -929,23 +1374,144 @@ function attachEventListeners() {
       showToast('Error selecting project: ' + err.message);
     }
   };
+
+  const openProjBtn = $('btn-open-project');
+  const sidebarAddBtn = $('btn-sidebar-add-project');
+  const topbarAddBtn = $('topbar-dropdown-add-project');
+  const emptyAddBtn = $('btn-empty-add-project');
   if (openProjBtn) openProjBtn.onclick = handleOpenPicker;
-  if (openCard) openCard.onclick = handleOpenPicker;
+  if (sidebarAddBtn) sidebarAddBtn.onclick = handleOpenPicker;
+  if (topbarAddBtn) {
+    topbarAddBtn.onclick = () => {
+      const pdd = $('topbar-project-dropdown');
+      if (pdd) pdd.style.display = 'none';
+      handleOpenPicker();
+    };
+  }
+  if (emptyAddBtn) {
+    emptyAddBtn.onclick = () => {
+      if (state.searchQuery) {
+        state.searchQuery = '';
+        render();
+      } else {
+        handleOpenPicker();
+      }
+    };
+  }
+
+  // Filter Search Input in Launchpad
+  const searchInput = $('search-projects-input');
+  if (searchInput) {
+    searchInput.oninput = (e) => {
+      state.searchQuery = e.target.value;
+      const app = $('app');
+      if (app) renderDashboard(app);
+      // Re-focus search input and restore cursor position
+      const reSearch = $('search-projects-input');
+      if (reSearch) {
+        reSearch.focus();
+        reSearch.setSelectionRange(reSearch.value.length, reSearch.value.length);
+      }
+    };
+  }
+
+  // Filter Chips in Launchpad
+  document.querySelectorAll('.filter-chip').forEach(el => {
+    el.onclick = () => {
+      const f = el.getAttribute('data-filter');
+      if (f) {
+        state.activeFilter = f;
+        render();
+      }
+    };
+  });
+
+  // Sidebar Workspace Filter Items
+  const navAll = $('nav-filter-all');
+  if (navAll) navAll.onclick = () => { state.activeFilter = 'all'; state.activeProject = null; render(); };
+  const navPr = $('nav-filter-pr');
+  if (navPr) navPr.onclick = () => { state.activeFilter = 'premiere'; state.activeProject = null; render(); };
+  const navDr = $('nav-filter-dr');
+  if (navDr) navDr.onclick = () => { state.activeFilter = 'resolve'; state.activeProject = null; render(); };
 
   // Open Tracked Projects
   document.querySelectorAll('.btn-open-tracked').forEach(el => {
-    el.onclick = async () => {
+    el.onclick = async (e) => {
+      e.stopPropagation();
       const path = el.getAttribute('data-project-path');
       if (path) await openProjectByPath(path);
     };
   });
 
-  // Close Active Project
-  const closeProjBtn = $('btn-close-project');
-  if (closeProjBtn) {
-    closeProjBtn.onclick = () => {
+  // Reveal in Explorer
+  document.querySelectorAll('.btn-reveal-path').forEach(el => {
+    el.onclick = async (e) => {
+      e.stopPropagation();
+      const path = el.getAttribute('data-path');
+      if (path) {
+        try {
+          const res = await api.showItemInFolder(path);
+          if (res && res.error) showToast(`Could not reveal: ${res.error}`);
+        } catch (err) {
+          showToast(`Error: ${err.message}`);
+        }
+      }
+    };
+  });
+
+  // Launch Project in Creative Editor
+  document.querySelectorAll('.btn-launch-editor').forEach(el => {
+    el.onclick = async (e) => {
+      e.stopPropagation();
+      const path = el.getAttribute('data-path');
+      if (path) {
+        try {
+          const res = await api.openPath(path);
+          if (res && res.error) showToast(`Launch failed: ${res.error}`);
+          else showToast(`Opening in editor...`);
+        } catch (err) {
+          showToast(`Error: ${err.message}`);
+        }
+      }
+    };
+  });
+
+  // Remove Tracked Project
+  document.querySelectorAll('.btn-remove-tracked').forEach(el => {
+    el.onclick = async (e) => {
+      e.stopPropagation();
+      const projectPath = el.getAttribute('data-project-path');
+      if (projectPath && confirm(`Remove "${projectPath.split(/[/\\]/).pop()}" from FrameGit tracked projects? (Your video files will not be deleted)`)) {
+        try {
+          await api.removeTrackedProject(projectPath);
+          if (state.activeProject && state.activeProject.path === projectPath) {
+            state.activeProject = null;
+          }
+          state.trackedProjects = await api.getTrackedProjects();
+          render();
+          showToast('Project removed from tracking');
+        } catch (err) {
+          showToast(`Error: ${err.message}`);
+        }
+      }
+    };
+  });
+
+  // Back to Home from Studio
+  const backHomeBtn = $('btn-back-to-home');
+  if (backHomeBtn) {
+    backHomeBtn.onclick = () => {
       state.activeProject = null;
       render();
+    };
+  }
+
+  // Refresh Project Working Tree
+  const refreshProjBtn = $('btn-refresh-project');
+  if (refreshProjBtn && state.activeProject) {
+    refreshProjBtn.onclick = async () => {
+      await openProjectByPath(state.activeProject.path);
+      showToast('Project status refreshed');
     };
   }
 
@@ -985,7 +1551,7 @@ function attachEventListeners() {
   if (createCpBtn) createCpBtn.onclick = handleCreateCheckpoint;
   if (cpInput) {
     cpInput.onkeydown = (e) => {
-      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey || !e.shiftKey)) {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         handleCreateCheckpoint();
       }
@@ -1001,7 +1567,7 @@ function attachEventListeners() {
         if (res && res.success && res.ascii) {
           alert(`=== TIMELINE VISUAL DIFF ===\n\n${res.ascii}`);
         } else {
-          showToast('Working tree clean — No differences to display.');
+          showToast('Working tree clean — No timeline modifications detected.');
         }
       } catch (err) {
         showToast('Error computing diff: ' + err.message);
@@ -1014,9 +1580,23 @@ function attachEventListeners() {
     el.onclick = async (e) => {
       e.stopPropagation();
       const hash = el.getAttribute('data-hash');
-      if (confirm(`Restore project to checkpoint ${hash.slice(0, 8)}? Any uncommitted changes will be replaced.`)) {
-        showToast(`Restored to checkpoint ${hash.slice(0, 8)}`);
-        await openProjectByPath(state.activeProject.path);
+      if (!state.activeProject) return;
+      if (confirm(`Restore project to checkpoint ${hash.slice(0, 8)}? Any uncommitted changes on disk will be rolled back.`)) {
+        try {
+          const res = await api.restoreCheckpoint({
+            projectPath: state.activeProject.path,
+            commitHash: hash,
+            force: true
+          });
+          if (res && res.success) {
+            showToast(`Restored to checkpoint ${hash.slice(0, 8)}`);
+            await openProjectByPath(state.activeProject.path);
+          } else {
+            showToast(`Restore failed: ${res.error || 'Unknown error'}`);
+          }
+        } catch (err) {
+          showToast(`Restore error: ${err.message}`);
+        }
       }
     };
   });
@@ -1028,6 +1608,7 @@ async function openProjectByPath(projectPath) {
     if (details && details.success) {
       state.activeProject = {
         path: projectPath,
+        projectFilePath: details.projectFilePath || projectPath,
         name: details.name || projectPath.split(/[/\\]/).pop(),
         type: details.type || 'generic',
         currentBranch: details.currentBranch || 'main',
@@ -1094,13 +1675,29 @@ async function init() {
 
     render();
 
-    // Register global outside click for account popover once
+    // Register global outside click for popovers & dropdowns once
     document.addEventListener('click', (e) => {
       const pop = $('account-popover');
       const trigger = $('account-trigger-btn');
       if (pop && pop.style.display !== 'none') {
         if (!pop.contains(e.target) && (!trigger || !trigger.contains(e.target))) {
           pop.style.display = 'none';
+        }
+      }
+
+      const pdd = $('topbar-project-dropdown');
+      const pbtn = $('topbar-project-btn');
+      if (pdd && pdd.style.display !== 'none') {
+        if (!pdd.contains(e.target) && (!pbtn || !pbtn.contains(e.target))) {
+          pdd.style.display = 'none';
+        }
+      }
+
+      const bdd = $('topbar-branch-dropdown');
+      const bbtn = $('topbar-branch-btn');
+      if (bdd && bdd.style.display !== 'none') {
+        if (!bdd.contains(e.target) && (!bbtn || !bbtn.contains(e.target))) {
+          bdd.style.display = 'none';
         }
       }
     });

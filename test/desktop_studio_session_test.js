@@ -129,4 +129,54 @@ test('Desktop Studio & Session Management Endpoints', async (t) => {
     assert.ok(Array.isArray(listRes.data));
     assert.ok(listRes.data.some(p => p.path === projectDir));
   });
+
+  await t.test('5. Manages tracked projects list and removal', async () => {
+    testStore.addTrackedProject(projectDir);
+    const trackedRes = await makeRequest(testPort, 'GET', '/api/desktop/projects/tracked');
+    assert.strictEqual(trackedRes.status, 200);
+    assert.ok(Array.isArray(trackedRes.data));
+    assert.ok(trackedRes.data.some(p => p.path === projectDir));
+
+    const removeRes = await makeRequest(testPort, 'POST', '/api/desktop/project/remove', { path: projectDir });
+    assert.strictEqual(removeRes.status, 200);
+    assert.strictEqual(removeRes.data.success, true);
+
+    const afterRemoveRes = await makeRequest(testPort, 'GET', '/api/desktop/projects/tracked');
+    assert.strictEqual(afterRemoveRes.status, 200);
+    assert.ok(!afterRemoveRes.data.some(p => p.path === projectDir));
+  });
+
+  await t.test('6. Restores project file to a previous checkpoint', async () => {
+    // Commit 1 already created
+    const inspectRes = await makeRequest(testPort, 'POST', '/api/desktop/project/inspect', { path: projectDir });
+    const firstCommitHash = inspectRes.data.history[0].commitHash || inspectRes.data.history[0].hash;
+
+    // Create Commit 2
+    fs.writeFileSync(path.join(projectDir, 'Commercial.prproj'), zlib.gzipSync(Buffer.from(createSamplePrprojXml(), 'utf8')));
+    const commit2Res = await makeRequest(testPort, 'POST', '/api/desktop/project/commit', {
+      projectPath: projectDir,
+      message: 'Second commit before restore test'
+    });
+    assert.strictEqual(commit2Res.data.success, true);
+
+    // Restore to Commit 1
+    const restoreRes = await makeRequest(testPort, 'POST', '/api/desktop/project/restore', {
+      projectPath: projectDir,
+      commitHash: firstCommitHash,
+      force: true
+    });
+    assert.strictEqual(restoreRes.status, 200);
+    assert.strictEqual(restoreRes.data.success, true);
+    assert.strictEqual(restoreRes.data.commitHash, firstCommitHash);
+  });
+
+  await t.test('7. Handles shell reveal and open endpoints', async () => {
+    const revealRes = await makeRequest(testPort, 'POST', '/api/desktop/shell/reveal', { path: projectDir });
+    assert.strictEqual(revealRes.status, 200);
+    assert.strictEqual(revealRes.data.success, true);
+
+    const badReveal = await makeRequest(testPort, 'POST', '/api/desktop/shell/reveal', { path: '/invalid/path/1234' });
+    assert.strictEqual(badReveal.status, 400);
+    assert.strictEqual(badReveal.data.success, false);
+  });
 });

@@ -39,8 +39,10 @@ contextBridge.exposeInMainWorld('framegit', {
   // Project Management & Tracking
   pickProject: () => ipcRenderer.invoke('project:pickDirectory'),
   getTrackedProjects: () => ipcRenderer.invoke('project:getTracked'),
+  removeTrackedProject: (path) => ipcRenderer.invoke('project:removeTracked', path),
   inspectProject: (path) => ipcRenderer.invoke('project:inspect', path),
   commitCheckpoint: (params) => ipcRenderer.invoke('project:commit', params),
+  restoreCheckpoint: (params) => ipcRenderer.invoke('project:restore', params),
   switchBranch: (params) => ipcRenderer.invoke('project:switchBranch', params),
   createBranch: (params) => ipcRenderer.invoke('project:createBranch', params),
   getProjectDiff: (projectPath) => ipcRenderer.invoke('project:getDiff', projectPath),
@@ -52,8 +54,10 @@ contextBridge.exposeInMainWorld('framegit', {
   // Background Watcher & Auto-Start Service
   configureStartup: (enable) => ipcRenderer.invoke('service:configureStartup', enable),
 
-  // System Utilities & Clipboard
+  // System Utilities, Shell & Clipboard
   openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
+  showItemInFolder: (path) => ipcRenderer.invoke('shell:showItemInFolder', path),
+  openPath: (path) => ipcRenderer.invoke('shell:openPath', path),
   copyToClipboard: (text) => ipcRenderer.invoke('clipboard:writeText', text),
   platform: process.platform
 });

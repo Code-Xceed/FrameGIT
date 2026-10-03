@@ -464,6 +464,15 @@ class VersionEngine {
   }
 
   /**
+   * Rollback/checkout a specific commit hash.
+   * @param {string} commitHash 
+   * @param {boolean} [force=false]
+   */
+  rollback(commitHash, force = false) {
+    return this.checkoutCommit(commitHash, force);
+  }
+
+  /**
    * Checkout a specific commit hash (detached HEAD).
    * @param {string} commitHash 
    * @param {boolean} [force=false]
@@ -600,6 +609,7 @@ class VersionEngine {
       if (!row) break;
       history.push({
         commitHash: row.commit_hash,
+        hash: row.commit_hash,
         treeHash: row.tree_hash,
         parentHash: row.parent_hash,
         secondParentHash: row.second_parent_hash,
@@ -608,7 +618,8 @@ class VersionEngine {
           email: row.author_email
         },
         message: row.message,
-        committedAt: row.committed_at
+        committedAt: row.committed_at,
+        timestamp: row.committed_at
       });
       currentHash = row.parent_hash;
     }

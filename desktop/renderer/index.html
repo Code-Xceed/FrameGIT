@@ -9,17 +9,84 @@
 <body>
   <!-- Window Drag Header / Titlebar -->
   <header class="app-header">
-    <div class="header-brand">
-      <div class="logo-mark">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="3"></circle>
-          <path d="M3 12h6m6 0h6M12 3v6m0 6v6"></path>
-        </svg>
+    <div class="header-left">
+      <div class="header-brand" id="header-brand-btn" title="Return to All Projects" style="cursor: pointer;">
+        <div class="logo-mark">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M3 12h6m6 0h6M12 3v6m0 6v6"></path>
+          </svg>
+        </div>
+        <span class="header-title">FrameGit</span>
       </div>
-      <span class="header-title">FrameGit Desktop</span>
-      <span class="header-badge">Local-First</span>
+
+      <!-- Navigation & Project Switcher Dropdown in Topbar -->
+      <div class="topbar-context-section" id="topbar-context-section" style="display: none;">
+        <div class="topbar-divider"></div>
+        <div class="topbar-menu-anchor">
+          <button class="topbar-switcher-btn" id="topbar-project-btn" title="Switch Project">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+            </svg>
+            <span class="topbar-switcher-label" id="topbar-project-label">All Projects</span>
+            <svg class="chevron-icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M6 9l6 6 6-6"></path>
+            </svg>
+          </button>
+          <div class="topbar-dropdown-menu" id="topbar-project-dropdown" style="display: none;">
+            <div class="dropdown-header">Tracked Projects</div>
+            <div class="dropdown-items" id="topbar-project-dropdown-list"></div>
+            <div class="dropdown-divider"></div>
+            <button class="dropdown-action-btn" id="topbar-dropdown-add-project">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 5v14M5 12h14"></path>
+              </svg>
+              <span>Track New Project...</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Branch Switcher (shown when a project is open) -->
+        <div class="topbar-menu-anchor" id="topbar-branch-anchor" style="display: none;">
+          <button class="topbar-switcher-btn" id="topbar-branch-btn" title="Current Branch">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="6" y1="3" x2="6" y2="15"></line>
+              <circle cx="18" cy="6" r="3"></circle>
+              <circle cx="6" cy="18" r="3"></circle>
+              <path d="M18 9a9 9 0 0 1-9 9"></path>
+            </svg>
+            <span class="topbar-switcher-label" id="topbar-branch-label">main</span>
+            <svg class="chevron-icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M6 9l6 6 6-6"></path>
+            </svg>
+          </button>
+          <div class="topbar-dropdown-menu" id="topbar-branch-dropdown" style="display: none;">
+            <div class="dropdown-header">Branches</div>
+            <div class="dropdown-items" id="topbar-branch-dropdown-list"></div>
+            <div class="dropdown-divider"></div>
+            <button class="dropdown-action-btn" id="topbar-dropdown-new-branch">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 5v14M5 12h14"></path>
+              </svg>
+              <span>Create New Branch...</span>
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
+
     <div class="header-right">
+      <div class="bridges-status-group" id="header-bridges-group" style="display: none;">
+        <div class="bridge-indicator" id="bridge-indicator-pr" title="Adobe Premiere Pro bridge">
+          <span class="bridge-tag pr">Pr</span>
+          <span class="bridge-dot" id="dot-bridge-pr"></span>
+        </div>
+        <div class="bridge-indicator" id="bridge-indicator-dr" title="DaVinci Resolve bridge">
+          <span class="bridge-tag dr">Dr</span>
+          <span class="bridge-dot" id="dot-bridge-dr"></span>
+        </div>
+      </div>
+
       <div class="header-status" id="header-status">
         <span class="status-dot"></span>
         <span class="status-label">Initial Setup</span>

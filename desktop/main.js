@@ -386,14 +386,15 @@ class DesktopServer {
             const projects = list.map(p => {
               let projectName = path.basename(p);
               let type = 'generic';
+              let projectFilePath = p;
               try {
                 const files = fs.readdirSync(p);
                 const pr = files.find(f => f.endsWith('.prproj'));
                 const dr = files.find(f => f.endsWith('.drp'));
-                if (pr) { projectName = pr; type = 'premiere'; }
-                else if (dr) { projectName = dr; type = 'resolve'; }
+                if (pr) { projectName = pr; type = 'premiere'; projectFilePath = path.join(p, pr); }
+                else if (dr) { projectName = dr; type = 'resolve'; projectFilePath = path.join(p, dr); }
               } catch (_) {}
-              return { path: p, name: projectName, type };
+              return { path: p, name: projectName, type, projectFilePath };
             });
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify(projects));
@@ -418,11 +419,13 @@ class DesktopServer {
               const files = fs.readdirSync(projectPath);
               const pr = files.find(f => f.endsWith('.prproj'));
               const dr = files.find(f => f.endsWith('.drp'));
+              const projectFilePath = pr ? path.join(projectPath, pr) : (dr ? path.join(projectPath, dr) : projectPath);
               res.writeHead(200, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({
                 success: true,
                 name: pr || dr || path.basename(projectPath),
                 type: pr ? 'premiere' : (dr ? 'resolve' : 'generic'),
+                projectFilePath,
                 currentBranch: engine.getCurrentBranch() || 'main',
                 status,
                 branches,
@@ -488,6 +491,83 @@ class DesktopServer {
               res.end(JSON.stringify({ success: false, error: err.message }));
             } finally {
               if (engine) engine.close();
+            }
+            return;
+          }
+
+          if (pathname === '/api/desktop/project/remove' && req.method === 'POST') {
+            const body = await this._readBody(req);
+            const parsed = safeJsonParse(body, 'remove project request');
+            userStore.removeTrackedProject(parsed.path);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true }));
+            return;
+          }
+
+          if (pathname === '/api/desktop/project/restore' && req.method === 'POST') {
+            const body = await this._readBody(req);
+            const parsed = safeJsonParse(body, 'restore checkpoint request');
+            const { projectPath, commitHash, force } = parsed;
+            if (!projectPath || !fs.existsSync(projectPath)) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: 'Project directory not found' }));
+              return;
+            }
+            let engine = null;
+            try {
+              engine = this._getEngineForProject(projectPath);
+              engine.rollback(commitHash, force || false);
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: true, commitHash }));
+            } catch (err) {
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: err.message }));
+            } finally {
+              if (engine) engine.close();
+            }
+            return;
+          }
+
+          if (pathname === '/api/desktop/shell/reveal' && req.method === 'POST') {
+            const body = await this._readBody(req);
+            const parsed = safeJsonParse(body, 'shell reveal request');
+            const targetPath = parsed.path;
+            if (targetPath && fs.existsSync(targetPath)) {
+              const { exec } = require('node:child_process');
+              if (process.platform === 'win32') {
+                exec(`explorer.exe /select,"${targetPath.replace(/"/g, '\\"')}"`);
+              } else if (process.platform === 'darwin') {
+                exec(`open -R "${targetPath.replace(/"/g, '\\"')}"`);
+              } else {
+                exec(`xdg-open "${path.dirname(targetPath).replace(/"/g, '\\"')}"`);
+              }
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: true }));
+            } else {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: 'Path not found' }));
+            }
+            return;
+          }
+
+          if (pathname === '/api/desktop/shell/open' && req.method === 'POST') {
+            const body = await this._readBody(req);
+            const parsed = safeJsonParse(body, 'shell open request');
+            const targetPath = parsed.path;
+            if (targetPath && fs.existsSync(targetPath)) {
+              const { exec } = require('node:child_process');
+              if (process.platform === 'win32') {
+                exec(`start "" "${targetPath.replace(/"/g, '\\"')}"`);
+              } else if (process.platform === 'darwin') {
+                exec(`open "${targetPath.replace(/"/g, '\\"')}"`);
+              } else {
+                exec(`xdg-open "${targetPath.replace(/"/g, '\\"')}"`);
+              }
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: true }));
+            } else {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: 'Path not found' }));
             }
             return;
           }
@@ -1078,6 +1158,7 @@ async function main() {
           return list.map(p => {
             let projectName = path.basename(p);
             let type = 'generic';
+            let projectFilePath = p;
             try {
               const files = fs.readdirSync(p);
               const pr = files.find(f => f.endsWith('.prproj'));
@@ -1085,17 +1166,58 @@ async function main() {
               if (pr) {
                 projectName = pr;
                 type = 'premiere';
+                projectFilePath = path.join(p, pr);
               } else if (dr) {
                 projectName = dr;
                 type = 'resolve';
+                projectFilePath = path.join(p, dr);
               }
             } catch (_) {}
             return {
               path: p,
+              projectFilePath,
               name: projectName,
               type
             };
           });
+        });
+
+        ipcMain.handle('project:removeTracked', async (event, projectPath) => {
+          userStore.removeTrackedProject(projectPath);
+          return { success: true };
+        });
+
+        ipcMain.handle('project:restore', async (event, { projectPath, commitHash, force }) => {
+          if (!projectPath || !fs.existsSync(projectPath)) {
+            return { success: false, error: 'Project directory not found' };
+          }
+          let engine = null;
+          try {
+            engine = server._getEngineForProject(projectPath);
+            engine.rollback(commitHash, force || false);
+            return { success: true, commitHash };
+          } catch (err) {
+            return { success: false, error: err.message };
+          } finally {
+            if (engine) engine.close();
+          }
+        });
+
+        ipcMain.handle('shell:showItemInFolder', async (event, targetPath) => {
+          if (targetPath && fs.existsSync(targetPath)) {
+            shell.showItemInFolder(targetPath);
+            return { success: true };
+          }
+          return { success: false, error: 'Path not found' };
+        });
+
+        ipcMain.handle('shell:openPath', async (event, targetPath) => {
+          if (targetPath && fs.existsSync(targetPath)) {
+            const err = await shell.openPath(targetPath);
+            if (err) return { success: false, error: err };
+            return { success: true };
+          }
+          return { success: false, error: 'Path not found' };
         });
 
         ipcMain.handle('project:inspect', async (event, projectPath) => {
@@ -1111,10 +1233,12 @@ async function main() {
             const files = fs.readdirSync(projectPath);
             const pr = files.find(f => f.endsWith('.prproj'));
             const dr = files.find(f => f.endsWith('.drp'));
+            const projectFilePath = pr ? path.join(projectPath, pr) : (dr ? path.join(projectPath, dr) : projectPath);
             return {
               success: true,
               name: pr || dr || path.basename(projectPath),
               type: pr ? 'premiere' : (dr ? 'resolve' : 'generic'),
+              projectFilePath,
               currentBranch: engine.getCurrentBranch() || 'main',
               status,
               branches,
