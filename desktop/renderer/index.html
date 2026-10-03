@@ -19,9 +19,72 @@
       <span class="header-title">FrameGit Desktop</span>
       <span class="header-badge">Local-First</span>
     </div>
-    <div class="header-status" id="header-status">
-      <span class="status-dot"></span>
-      <span class="status-label">Initial Setup</span>
+    <div class="header-right">
+      <div class="header-status" id="header-status">
+        <span class="status-dot"></span>
+        <span class="status-label">Initial Setup</span>
+      </div>
+
+      <!-- Account Profile Button & Popover -->
+      <div class="account-menu-container" id="account-menu-container" style="display: none;">
+        <button class="account-trigger-btn" id="account-trigger-btn" title="GitHub Account Menu">
+          <img class="account-avatar-small" id="account-avatar-small" src="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png" alt="avatar" />
+          <span class="account-name-small" id="account-name-small">Account</span>
+          <svg class="chevron-icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M6 9l6 6 6-6"></path>
+          </svg>
+        </button>
+
+        <!-- Account Flyout Popover -->
+        <div class="account-popover" id="account-popover" style="display: none;">
+          <div class="popover-profile">
+            <img class="popover-avatar" id="popover-avatar" src="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png" alt="avatar" />
+            <div class="popover-meta">
+              <div class="popover-name" id="popover-name">Editor</div>
+              <div class="popover-handle" id="popover-handle">@github</div>
+              <div class="popover-email" id="popover-email"></div>
+            </div>
+          </div>
+
+          <div class="popover-badge-row">
+            <span class="popover-status-badge">● GitHub Connected</span>
+            <span class="popover-scope-badge">Full Repo</span>
+          </div>
+
+          <div class="popover-divider"></div>
+
+          <div class="popover-menu-list">
+            <button class="popover-item" id="menu-sync-git">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="4"></circle>
+                <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"></path>
+              </svg>
+              <span>Sync Git Author Identity</span>
+            </button>
+            <button class="popover-item" id="menu-view-github">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"></path>
+              </svg>
+              <span>View GitHub Profile</span>
+            </button>
+            <button class="popover-item" id="menu-refresh-session">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+              </svg>
+              <span>Verify & Refresh Session</span>
+            </button>
+          </div>
+
+          <div class="popover-divider"></div>
+
+          <button class="popover-item popover-danger" id="menu-sign-out">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"></path>
+            </svg>
+            <span>Sign Out</span>
+          </button>
+        </div>
+      </div>
     </div>
   </header>
 

@@ -375,6 +375,198 @@ class DesktopServer {
             return;
           }
 
+          // 5b. Project Management & Account Endpoints (Full Parity with Native Electron)
+          if (pathname === '/api/desktop/projects/tracked' && req.method === 'GET') {
+            const userStore = getDefaultUserStore();
+            const settings = userStore.getSettings();
+            const list = (settings.trackedProjects || []).filter(p => fs.existsSync(p));
+            const projects = list.map(p => {
+              let projectName = path.basename(p);
+              let type = 'generic';
+              try {
+                const files = fs.readdirSync(p);
+                const pr = files.find(f => f.endsWith('.prproj'));
+                const dr = files.find(f => f.endsWith('.drp'));
+                if (pr) { projectName = pr; type = 'premiere'; }
+                else if (dr) { projectName = dr; type = 'resolve'; }
+              } catch (_) {}
+              return { path: p, name: projectName, type };
+            });
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(projects));
+            return;
+          }
+
+          if (pathname === '/api/desktop/project/inspect' && req.method === 'POST') {
+            const body = await this._readBody(req);
+            const parsed = safeJsonParse(body, 'inspect request');
+            const projectPath = parsed.path;
+            if (!projectPath || !fs.existsSync(projectPath)) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: 'Project directory not found' }));
+              return;
+            }
+            let engine = null;
+            try {
+              engine = this._getEngineForProject(projectPath);
+              const status = engine.status();
+              const branches = engine.listBranches();
+              const history = engine.log(15);
+              const files = fs.readdirSync(projectPath);
+              const pr = files.find(f => f.endsWith('.prproj'));
+              const dr = files.find(f => f.endsWith('.drp'));
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({
+                success: true,
+                name: pr || dr || path.basename(projectPath),
+                type: pr ? 'premiere' : (dr ? 'resolve' : 'generic'),
+                currentBranch: engine.getCurrentBranch() || 'main',
+                status,
+                branches,
+                history
+              }));
+            } catch (err) {
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: err.message }));
+            } finally {
+              if (engine) engine.close();
+            }
+            return;
+          }
+
+          if (pathname === '/api/desktop/project/commit' && req.method === 'POST') {
+            const body = await this._readBody(req);
+            const parsed = safeJsonParse(body, 'commit request');
+            const { projectPath, message } = parsed;
+            if (!projectPath || !fs.existsSync(projectPath)) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: 'Project directory not found' }));
+              return;
+            }
+            let engine = null;
+            try {
+              engine = this._getEngineForProject(projectPath);
+              const userStore = getDefaultUserStore();
+              const auth = userStore.getGitHubAuth();
+              const author = auth && auth.user ? {
+                name: auth.user.name || auth.user.username,
+                email: auth.user.email || `${auth.user.username}@users.noreply.github.com`
+              } : null;
+              const commitRes = await engine.commit(message || 'Timeline checkpoint', author);
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: true, commit: commitRes }));
+            } catch (err) {
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: err.message }));
+            } finally {
+              if (engine) engine.close();
+            }
+            return;
+          }
+
+          if (pathname === '/api/desktop/project/diff' && req.method === 'POST') {
+            const body = await this._readBody(req);
+            const parsed = safeJsonParse(body, 'diff request');
+            const projectPath = parsed.path;
+            if (!projectPath || !fs.existsSync(projectPath)) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: 'Project directory not found' }));
+              return;
+            }
+            let engine = null;
+            try {
+              engine = this._getEngineForProject(projectPath);
+              const st = engine.status();
+              const ascii = VisualDiff.renderAscii(st.currState || {}, st.changes || []);
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: true, ascii, changeCount: st.changes ? st.changes.length : 0 }));
+            } catch (err) {
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: err.message }));
+            } finally {
+              if (engine) engine.close();
+            }
+            return;
+          }
+
+          if (pathname === '/api/auth/sign-out' && req.method === 'POST') {
+            const userStore = getDefaultUserStore();
+            userStore.clearGitHubAuth();
+            userStore.resetSetup();
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true }));
+            return;
+          }
+
+          if (pathname === '/api/auth/refresh-profile' && req.method === 'GET') {
+            const userStore = getDefaultUserStore();
+            const auth = userStore.getGitHubAuth();
+            if (!auth || !auth.hasToken || !auth.token) {
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ authenticated: false, offline: false, user: null }));
+              return;
+            }
+            try {
+              const client = new GitHubApiClient({ token: auth.token });
+              const userRes = await client._request('GET', '/user');
+              if (userRes && userRes.login) {
+                const updated = {
+                  login: userRes.login,
+                  username: userRes.login,
+                  name: userRes.name || userRes.login,
+                  email: userRes.email || null,
+                  avatar_url: userRes.avatar_url || null,
+                  public_repos: userRes.public_repos || 0
+                };
+                userStore.saveGitHubAuth({
+                  token: auth.token,
+                  username: userRes.login,
+                  name: userRes.name || userRes.login,
+                  email: userRes.email || null,
+                  avatarUrl: userRes.avatar_url || null
+                });
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ authenticated: true, offline: false, user: updated }));
+                return;
+              }
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ authenticated: false, offline: false, error: 'Invalid user response' }));
+            } catch (err) {
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({
+                authenticated: true,
+                offline: true,
+                user: auth.user,
+                error: err.message
+              }));
+            }
+            return;
+          }
+
+          if (pathname === '/api/auth/sync-git' && req.method === 'POST') {
+            const userStore = getDefaultUserStore();
+            const auth = userStore.getGitHubAuth();
+            if (!auth || !auth.user || (!auth.user.username && !auth.user.login)) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: 'No user authenticated' }));
+              return;
+            }
+            const { execSync } = require('node:child_process');
+            try {
+              const uname = auth.user.username || auth.user.login;
+              const name = auth.user.name || uname;
+              const email = auth.user.email || `${uname}@users.noreply.github.com`;
+              execSync(`git config --global user.name "${name.replace(/"/g, '\\"')}"`);
+              execSync(`git config --global user.email "${email.replace(/"/g, '\\"')}"`);
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: true, name, email }));
+            } catch (err) {
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: err.message }));
+            }
+            return;
+          }
+
           // 6. Static UI Assets
           let filePath = path.join(this.staticDir, pathname === '/' ? 'index.html' : pathname);
           if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
@@ -426,7 +618,12 @@ class DesktopServer {
     const files = fs.readdirSync(projectPath);
     const prj = files.find(f => f.endsWith('.prproj') || f.endsWith('.drp')) || 'project.prproj';
     const engine = new VersionEngine(projectPath, prj);
-    engine.open();
+    const dbPath = path.join(projectPath, '.framegit', 'state.db');
+    if (!fs.existsSync(dbPath)) {
+      engine.init();
+    } else {
+      engine.open();
+    }
     return engine;
   }
 
@@ -789,6 +986,203 @@ async function main() {
 
         ipcMain.handle('github:setOAuthConfig', async (event, config) => {
           return userStore.setGitHubConfig(config || {});
+        });
+
+        // Account & Session Lifecycle Handlers
+        ipcMain.handle('auth:signOut', async () => {
+          userStore.clearGitHubAuth();
+          userStore.resetSetup();
+          return { success: true };
+        });
+
+        ipcMain.handle('auth:refreshProfile', async () => {
+          const auth = userStore.getGitHubAuth();
+          if (!auth || !auth.hasToken || !auth.token) {
+            return { authenticated: false, offline: false, user: null };
+          }
+          try {
+            const client = new GitHubApiClient({ token: auth.token });
+            const userRes = await client._request('GET', '/user');
+            if (userRes && userRes.login) {
+              const updated = {
+                login: userRes.login,
+                name: userRes.name || userRes.login,
+                email: userRes.email || null,
+                avatar_url: userRes.avatar_url || null,
+                public_repos: userRes.public_repos || 0
+              };
+              userStore.saveGitHubAuth({
+                token: auth.token,
+                username: userRes.login,
+                name: userRes.name || userRes.login,
+                email: userRes.email || null,
+                avatarUrl: userRes.avatar_url || null
+              });
+              return { authenticated: true, offline: false, user: updated };
+            }
+            return { authenticated: false, offline: false, error: 'Invalid user response' };
+          } catch (err) {
+            return {
+              authenticated: true,
+              offline: true,
+              user: auth.user,
+              error: err.message
+            };
+          }
+        });
+
+        ipcMain.handle('auth:syncGitConfig', async () => {
+          const auth = userStore.getGitHubAuth();
+          if (!auth || !auth.user || !auth.user.username) {
+            return { success: false, error: 'No user authenticated' };
+          }
+          const { execSync } = require('node:child_process');
+          try {
+            const name = auth.user.name || auth.user.username;
+            const email = auth.user.email || `${auth.user.username}@users.noreply.github.com`;
+            execSync(`git config --global user.name "${name.replace(/"/g, '\\"')}"`);
+            execSync(`git config --global user.email "${email.replace(/"/g, '\\"')}"`);
+            return { success: true, name, email };
+          } catch (err) {
+            return { success: false, error: err.message };
+          }
+        });
+
+        // Project Management & Tracking Handlers
+        ipcMain.handle('project:pickDirectory', async () => {
+          const { dialog } = require('electron');
+          const res = await dialog.showOpenDialog({
+            title: 'Open Video Editing Project or Folder',
+            properties: ['openFile', 'openDirectory'],
+            filters: [
+              { name: 'Video Editing Projects (*.prproj, *.drp)', extensions: ['prproj', 'drp'] },
+              { name: 'All Files', extensions: ['*'] }
+            ]
+          });
+          if (res.canceled || !res.filePaths.length) {
+            return { canceled: true };
+          }
+          const selectedPath = res.filePaths[0];
+          const isDir = fs.statSync(selectedPath).isDirectory();
+          const projectDir = isDir ? selectedPath : path.dirname(selectedPath);
+          userStore.addTrackedProject(projectDir);
+          return { canceled: false, path: projectDir, filePath: isDir ? null : selectedPath };
+        });
+
+        ipcMain.handle('project:getTracked', async () => {
+          const settings = userStore.getSettings();
+          const list = (settings.trackedProjects || []).filter(p => fs.existsSync(p));
+          return list.map(p => {
+            let projectName = path.basename(p);
+            let type = 'generic';
+            try {
+              const files = fs.readdirSync(p);
+              const pr = files.find(f => f.endsWith('.prproj'));
+              const dr = files.find(f => f.endsWith('.drp'));
+              if (pr) {
+                projectName = pr;
+                type = 'premiere';
+              } else if (dr) {
+                projectName = dr;
+                type = 'resolve';
+              }
+            } catch (_) {}
+            return {
+              path: p,
+              name: projectName,
+              type
+            };
+          });
+        });
+
+        ipcMain.handle('project:inspect', async (event, projectPath) => {
+          if (!projectPath || !fs.existsSync(projectPath)) {
+            return { success: false, error: 'Project directory not found' };
+          }
+          let engine = null;
+          try {
+            engine = server._getEngineForProject(projectPath);
+            const status = engine.status();
+            const branches = engine.listBranches();
+            const history = engine.log(15);
+            const files = fs.readdirSync(projectPath);
+            const pr = files.find(f => f.endsWith('.prproj'));
+            const dr = files.find(f => f.endsWith('.drp'));
+            return {
+              success: true,
+              name: pr || dr || path.basename(projectPath),
+              type: pr ? 'premiere' : (dr ? 'resolve' : 'generic'),
+              currentBranch: engine.getCurrentBranch() || 'main',
+              status,
+              branches,
+              history
+            };
+          } catch (err) {
+            return { success: false, error: err.message };
+          } finally {
+            if (engine) engine.close();
+          }
+        });
+
+        ipcMain.handle('project:commit', async (event, { projectPath, message }) => {
+          if (!projectPath || !fs.existsSync(projectPath)) {
+            return { success: false, error: 'Project directory not found' };
+          }
+          let engine = null;
+          try {
+            engine = server._getEngineForProject(projectPath);
+            const auth = userStore.getGitHubAuth();
+            const author = auth && auth.user ? {
+              name: auth.user.name || auth.user.username,
+              email: auth.user.email || `${auth.user.username}@users.noreply.github.com`
+            } : null;
+            const res = await engine.commit(message || 'Timeline checkpoint', author);
+            return { success: true, commit: res };
+          } catch (err) {
+            return { success: false, error: err.message };
+          } finally {
+            if (engine) engine.close();
+          }
+        });
+
+        ipcMain.handle('project:switchBranch', async (event, { projectPath, branchName, force }) => {
+          let engine = null;
+          try {
+            engine = server._getEngineForProject(projectPath);
+            const res = engine.switchBranch(branchName, force || false);
+            return { success: true, result: res };
+          } catch (err) {
+            return { success: false, error: err.message };
+          } finally {
+            if (engine) engine.close();
+          }
+        });
+
+        ipcMain.handle('project:createBranch', async (event, { projectPath, branchName }) => {
+          let engine = null;
+          try {
+            engine = server._getEngineForProject(projectPath);
+            engine.createBranch(branchName);
+            return { success: true, name: branchName };
+          } catch (err) {
+            return { success: false, error: err.message };
+          } finally {
+            if (engine) engine.close();
+          }
+        });
+
+        ipcMain.handle('project:getDiff', async (event, projectPath) => {
+          let engine = null;
+          try {
+            engine = server._getEngineForProject(projectPath);
+            const st = engine.status();
+            const ascii = VisualDiff.renderAscii(st.currState || {}, st.changes || []);
+            return { success: true, ascii, changeCount: st.changes ? st.changes.length : 0 };
+          } catch (err) {
+            return { success: false, error: err.message };
+          } finally {
+            if (engine) engine.close();
+          }
         });
       }
 

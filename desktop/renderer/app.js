@@ -48,8 +48,54 @@ const api = window.framegit || {
     body: JSON.stringify(opts || {})
   })).json(),
   resetSetup: async () => (await fetch('/api/setup/reset', { method: 'POST' })).json(),
-  openExternal: (url) => { window.open(url, '_blank'); return Promise.resolve({ success: true }); }
+  openExternal: (url) => { window.open(url, '_blank'); return Promise.resolve({ success: true }); },
+
+  // Account Session Lifecycle
+  signOut: async () => (await fetch('/api/auth/sign-out', { method: 'POST' })).json(),
+  refreshProfile: async () => (await fetch('/api/auth/refresh-profile')).json(),
+  syncGitConfig: async () => (await fetch('/api/auth/sync-git', { method: 'POST' })).json(),
+
+  // Project Management & Tracking
+  pickProject: async () => {
+    const p = prompt('Enter absolute path to Premiere Pro or DaVinci Resolve project folder:');
+    if (!p) return { canceled: true };
+    return { canceled: false, path: p.trim() };
+  },
+  getTrackedProjects: async () => (await fetch('/api/desktop/projects/tracked')).json(),
+  inspectProject: async (path) => (await fetch('/api/desktop/project/inspect', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path })
+  })).json(),
+  commitCheckpoint: async (params) => (await fetch('/api/desktop/project/commit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params)
+  })).json(),
+  switchBranch: async () => ({ success: false, error: 'Not supported in web browser mode' }),
+  createBranch: async () => ({ success: false, error: 'Not supported in web browser mode' }),
+  getProjectDiff: async (path) => (await fetch('/api/desktop/project/diff', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path })
+  })).json()
 };
+
+function normalizeUser(u) {
+  if (!u) return null;
+  const login = u.login || u.username || '';
+  const name = u.name || login || 'Editor';
+  const avatarUrl = u.avatar_url || u.avatarUrl || 'https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png';
+  return {
+    login,
+    username: login,
+    name,
+    email: u.email || null,
+    avatar_url: avatarUrl,
+    avatarUrl: avatarUrl,
+    public_repos: u.public_repos || 0
+  };
+}
 
 // 2. Application State
 const state = {
@@ -63,7 +109,10 @@ const state = {
   user: null,
   editors: [],
   autoStartService: true,
-  oauthConfig: { clientId: '', hasSecret: false }
+  oauthConfig: { clientId: '', hasSecret: false },
+  trackedProjects: [],
+  activeProject: null,
+  isOffline: false
 };
 
 function $(id) {
@@ -78,6 +127,71 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+function showToast(message) {
+  let toast = $('app-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'app-toast';
+    toast.style.position = 'fixed';
+    toast.style.bottom = '24px';
+    toast.style.right = '24px';
+    toast.style.backgroundColor = '#111318';
+    toast.style.border = '1px solid rgba(255, 255, 255, 0.15)';
+    toast.style.borderRadius = '10px';
+    toast.style.padding = '10px 18px';
+    toast.style.color = '#f4f4f6';
+    toast.style.fontSize = '12px';
+    toast.style.boxShadow = '0 16px 40px rgba(0, 0, 0, 0.6)';
+    toast.style.zIndex = '9999';
+    toast.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
+    toast.style.pointerEvents = 'none';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = message;
+  toast.style.opacity = '1';
+  toast.style.transform = 'translateY(0)';
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(6px)';
+  }, 2600);
+}
+
+function updateAccountHeader() {
+  const container = $('account-menu-container');
+  if (!container) return;
+
+  if (state.user && (state.user.login || state.user.username)) {
+    const u = normalizeUser(state.user);
+    container.style.display = 'block';
+    const avatarEl = $('account-avatar-small');
+    const nameEl = $('account-name-small');
+    if (avatarEl) {
+      avatarEl.src = u.avatar_url;
+      avatarEl.onerror = () => {
+        avatarEl.src = 'https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png';
+      };
+    }
+    if (nameEl) nameEl.textContent = u.name || `@${u.login}`;
+
+    // Popover fields
+    const popAvatar = $('popover-avatar');
+    const popName = $('popover-name');
+    const popHandle = $('popover-handle');
+    const popEmail = $('popover-email');
+    if (popAvatar) {
+      popAvatar.src = u.avatar_url;
+      popAvatar.onerror = () => {
+        popAvatar.src = 'https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png';
+      };
+    }
+    if (popName) popName.textContent = u.name;
+    if (popHandle) popHandle.textContent = `@${u.login}`;
+    if (popEmail) popEmail.textContent = u.email || 'OAuth Token Encrypted';
+  } else {
+    container.style.display = 'none';
+  }
 }
 
 function updateHeader(statusText, isOnline = false) {
@@ -96,6 +210,7 @@ function render() {
 
   if (state.isSetupCompleted) {
     renderDashboard(app);
+    attachEventListeners();
     return;
   }
 
@@ -354,49 +469,142 @@ function renderEditorTilesHtml() {
   `;
 }
 
-// 4. Post-Setup Minimal Dashboard
+// 4. Studio Workspace Dashboard
 function renderDashboard(app) {
-  updateHeader('Service Active', true);
+  updateHeader(state.isOffline ? 'Offline (Local-First)' : 'Service Active', !state.isOffline);
+  updateAccountHeader();
 
   const u = state.user || {};
-  const name = u.name || u.login || 'Editor';
+  const name = u.name || (u.login ? `@${u.login}` : 'Editor');
 
-  app.innerHTML = `
-    <div class="dashboard-view">
-      <div class="dashboard-panel">
-        <div class="panel-header">
-          <div class="panel-user">
-            <img class="panel-avatar" src="${escapeHtml(u.avatar_url || 'https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png')}" alt="Avatar" />
-            <div>
-              <div class="panel-title">${escapeHtml(name)}</div>
-              <div class="panel-subtitle">${u.login ? '@' + escapeHtml(u.login) : 'Local Workspace'}</div>
+  if (!state.activeProject) {
+    app.innerHTML = `
+      <div class="workspace-shell">
+        <div class="workspace-hero">
+          <div class="workspace-hero-left">
+            <h2>Welcome back, ${escapeHtml(name)}</h2>
+            <p>Your local-first timeline version control studio is active and ready.</p>
+          </div>
+          <button class="btn btn-primary" id="btn-open-project" style="max-width: 170px;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+            </svg>
+            Open Project
+          </button>
+        </div>
+
+        <div class="workspace-cards-grid">
+          <div class="workspace-action-card" id="card-open-project">
+            <div class="workspace-card-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 5v14M5 12h14"></path>
+              </svg>
+            </div>
+            <div class="workspace-card-title">Track New Project</div>
+            <div class="workspace-card-desc">Select any Premiere Pro (.prproj) or DaVinci Resolve (.drp) project to begin automatic version tracking.</div>
+          </div>
+
+          <div class="workspace-action-card" id="card-active-editors">
+            <div class="workspace-card-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+              </svg>
+            </div>
+            <div class="workspace-card-title">Creative Editor Bridges</div>
+            <div class="workspace-card-desc">
+              ${state.editors.length ? state.editors.map(e => `${escapeHtml(e.name)}: Ready ✓`).join('<br>') : 'Monitoring Adobe Premiere Pro & DaVinci Resolve processes.'}
             </div>
           </div>
-          <span class="panel-status-pill">● Online</span>
         </div>
 
-        <div class="empty-workspace">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="color: var(--text-muted);">
-            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-          </svg>
-          <p>No active project open in Premiere Pro or DaVinci Resolve.</p>
-          <p style="font-size: 11px;">Open any project to automatically track timeline checkpoints.</p>
-        </div>
-
-        <button class="btn btn-subtle" id="btn-reset-setup">Re-run Setup</button>
+        ${state.trackedProjects && state.trackedProjects.length ? `
+          <div class="checkpoint-history-section" style="margin-top: 8px;">
+            <div class="history-header">Tracked Projects</div>
+            <div class="popover-menu-list">
+              ${state.trackedProjects.map(p => `
+                <div class="checkpoint-item-row btn-open-tracked" style="cursor: pointer;" data-project-path="${escapeHtml(p.path)}">
+                  <div class="checkpoint-left">
+                    <span class="editor-badge-icon ${p.type === 'premiere' ? 'pr' : (p.type === 'resolve' ? 'dr' : '')}">${p.type === 'premiere' ? 'Pr' : (p.type === 'resolve' ? 'Dr' : 'FG')}</span>
+                    <div>
+                      <div class="checkpoint-msg-text">${escapeHtml(p.name)}</div>
+                      <div class="checkpoint-author-info">${escapeHtml(p.path)}</div>
+                    </div>
+                  </div>
+                  <button class="btn btn-secondary" style="padding: 4px 12px; font-size: 11px;">Open</button>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        ` : `
+          <div class="empty-workspace" style="margin-top: 8px;">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+            </svg>
+            <p>No projects tracked yet. Click "Open Project" or open a project in Premiere Pro / DaVinci Resolve.</p>
+          </div>
+        `}
       </div>
-    </div>
-  `;
+    `;
+  } else {
+    // Project is active!
+    const proj = state.activeProject;
+    const isDirty = proj.status && proj.status.hasChanges;
+    const changesCount = (proj.status && proj.status.changes) ? proj.status.changes.length : 0;
 
-  const resetBtn = $('btn-reset-setup');
-  if (resetBtn) {
-    resetBtn.addEventListener('click', async () => {
-      await api.resetSetup();
-      state.isSetupCompleted = false;
-      state.step = 1;
-      state.authMode = 'welcome';
-      render();
-    });
+    app.innerHTML = `
+      <div class="workspace-shell">
+        <div class="active-project-card">
+          <div class="active-project-bar">
+            <div class="project-meta-left">
+              <span class="editor-badge-icon ${proj.type === 'premiere' ? 'pr' : (proj.type === 'resolve' ? 'dr' : '')}">${proj.type === 'premiere' ? 'Pr' : (proj.type === 'resolve' ? 'Dr' : 'FG')}</span>
+              <div>
+                <div class="project-name-text">${escapeHtml(proj.name)}</div>
+                <div class="project-path-text">${escapeHtml(proj.path)}</div>
+              </div>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <span class="panel-status-pill" style="font-size: 11px;">Branch: ${escapeHtml(proj.currentBranch || 'main')}</span>
+              <button class="btn btn-subtle" id="btn-close-project" style="padding: 4px 10px; font-size: 11px;">Close</button>
+            </div>
+          </div>
+
+          <div class="active-project-content">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <div style="display: flex; align-items: center; gap: 8px; font-size: 12px;">
+                <span class="status-dot ${isDirty ? '' : 'online'}"></span>
+                <span>${isDirty ? `${changesCount} timeline changes pending` : 'Working tree clean — Checkpoint up to date'}</span>
+              </div>
+              <button class="btn btn-secondary" id="btn-show-diff" style="padding: 4px 10px; font-size: 11px;">
+                View Visual Diff
+              </button>
+            </div>
+
+            <div class="checkpoint-creator-row">
+              <input type="text" class="checkpoint-text-input" id="checkpoint-msg-input" placeholder="Describe checkpoint (e.g. Scene 2 rough cut, audio ducking, Lumetri grade)..." />
+              <button class="btn btn-primary" id="btn-create-checkpoint" style="width: 140px;">Save Checkpoint</button>
+            </div>
+
+            <div class="checkpoint-history-section">
+              <div class="history-header">Timeline Checkpoints</div>
+              <div class="popover-menu-list">
+                ${proj.history && proj.history.length ? proj.history.map(c => `
+                  <div class="checkpoint-item-row">
+                    <div class="checkpoint-left">
+                      <span class="checkpoint-hash-tag">${escapeHtml((c.hash || '').slice(0, 8))}</span>
+                      <div>
+                        <div class="checkpoint-msg-text">${escapeHtml(c.message || 'Timeline checkpoint')}</div>
+                        <div class="checkpoint-author-info">${escapeHtml(c.author && c.author.name ? c.author.name : 'Editor')} • ${escapeHtml(new Date(c.timestamp || Date.now()).toLocaleTimeString())}</div>
+                      </div>
+                    </div>
+                    <button class="btn btn-subtle btn-restore-checkpoint" data-hash="${escapeHtml(c.hash)}" style="padding: 4px 10px; font-size: 11px;">Restore</button>
+                  </div>
+                `).join('') : '<div style="color: var(--text-muted); font-size: 12px; padding: 10px 0;">No checkpoints in this branch yet. Create your first checkpoint above.</div>'}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
   }
 }
 
@@ -623,6 +831,219 @@ function attachEventListeners() {
       }
     });
   }
+
+  // Account Popover Toggle
+  const accountTrigger = $('account-trigger-btn');
+  const accountPopover = $('account-popover');
+  if (accountTrigger && accountPopover) {
+    accountTrigger.onclick = (e) => {
+      e.stopPropagation();
+      const isVisible = accountPopover.style.display !== 'none';
+      accountPopover.style.display = isVisible ? 'none' : 'flex';
+    };
+  }
+
+
+
+  // Sync Git Config
+  const syncGitBtn = $('menu-sync-git');
+  if (syncGitBtn) {
+    syncGitBtn.onclick = async () => {
+      try {
+        const res = await api.syncGitConfig();
+        if (res.success) {
+          showToast(`Git Author Configured: ${res.name} <${res.email}>`);
+        } else {
+          showToast(`Sync Failed: ${res.error || 'Unknown error'}`);
+        }
+      } catch (err) {
+        showToast(`Sync Error: ${err.message}`);
+      }
+    };
+  }
+
+  // View GitHub Profile
+  const viewGhBtn = $('menu-view-github');
+  if (viewGhBtn) {
+    viewGhBtn.onclick = () => {
+      if (state.user && state.user.login) {
+        api.openExternal(`https://github.com/${state.user.login}`);
+      }
+    };
+  }
+
+  // Refresh Session
+  const refreshBtn = $('menu-refresh-session');
+  if (refreshBtn) {
+    refreshBtn.onclick = async () => {
+      refreshBtn.disabled = true;
+      try {
+        const res = await api.refreshProfile();
+        if (res && res.authenticated) {
+          if (res.user) state.user = res.user;
+          state.isOffline = Boolean(res.offline);
+          updateAccountHeader();
+          updateHeader(state.isOffline ? 'Offline (Cached Profile)' : 'Service Active', !state.isOffline);
+          showToast(state.isOffline ? 'Offline: Operating from Local Vault' : 'Session Active: Verified with GitHub');
+        } else {
+          showToast('Session Expired: Please Sign In Again');
+        }
+      } catch (err) {
+        showToast('Session check: ' + err.message);
+      } finally {
+        refreshBtn.disabled = false;
+      }
+    };
+  }
+
+  // Sign Out
+  const signOutBtn = $('menu-sign-out');
+  if (signOutBtn) {
+    signOutBtn.onclick = async () => {
+      if (confirm('Disconnect GitHub account and sign out?')) {
+        await api.signOut();
+        state.user = null;
+        state.isSetupCompleted = false;
+        state.step = 1;
+        state.authMode = 'welcome';
+        state.activeProject = null;
+        const pop = $('account-popover');
+        if (pop) pop.style.display = 'none';
+        updateAccountHeader();
+        render();
+        showToast('Signed out successfully.');
+      }
+    };
+  }
+
+  // Open Project / Pick Directory
+  const openProjBtn = $('btn-open-project');
+  const openCard = $('card-open-project');
+  const handleOpenPicker = async () => {
+    try {
+      const res = await api.pickProject();
+      if (res && !res.canceled && res.path) {
+        await openProjectByPath(res.path);
+      }
+    } catch (err) {
+      showToast('Error selecting project: ' + err.message);
+    }
+  };
+  if (openProjBtn) openProjBtn.onclick = handleOpenPicker;
+  if (openCard) openCard.onclick = handleOpenPicker;
+
+  // Open Tracked Projects
+  document.querySelectorAll('.btn-open-tracked').forEach(el => {
+    el.onclick = async () => {
+      const path = el.getAttribute('data-project-path');
+      if (path) await openProjectByPath(path);
+    };
+  });
+
+  // Close Active Project
+  const closeProjBtn = $('btn-close-project');
+  if (closeProjBtn) {
+    closeProjBtn.onclick = () => {
+      state.activeProject = null;
+      render();
+    };
+  }
+
+  // Create Checkpoint
+  const createCpBtn = $('btn-create-checkpoint');
+  const cpInput = $('checkpoint-msg-input');
+  const handleCreateCheckpoint = async () => {
+    if (!state.activeProject) return;
+    const msg = cpInput ? cpInput.value.trim() : '';
+    if (!msg) {
+      showToast('Please enter a checkpoint description');
+      if (cpInput) cpInput.focus();
+      return;
+    }
+    createCpBtn.disabled = true;
+    createCpBtn.textContent = 'Saving...';
+    try {
+      const res = await api.commitCheckpoint({
+        projectPath: state.activeProject.path,
+        message: msg
+      });
+      if (res && res.success) {
+        showToast(`Checkpoint created: ${res.commit.commitHash.slice(0, 8)}`);
+        await openProjectByPath(state.activeProject.path);
+      } else {
+        showToast(`Failed: ${res.error || 'Could not save checkpoint'}`);
+      }
+    } catch (err) {
+      showToast(`Error: ${err.message}`);
+    } finally {
+      if (createCpBtn) {
+        createCpBtn.disabled = false;
+        createCpBtn.textContent = 'Save Checkpoint';
+      }
+    }
+  };
+  if (createCpBtn) createCpBtn.onclick = handleCreateCheckpoint;
+  if (cpInput) {
+    cpInput.onkeydown = (e) => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey || !e.shiftKey)) {
+        e.preventDefault();
+        handleCreateCheckpoint();
+      }
+    };
+  }
+
+  // View Visual Diff
+  const diffBtn = $('btn-show-diff');
+  if (diffBtn && state.activeProject) {
+    diffBtn.onclick = async () => {
+      try {
+        const res = await api.getProjectDiff(state.activeProject.path);
+        if (res && res.success && res.ascii) {
+          alert(`=== TIMELINE VISUAL DIFF ===\n\n${res.ascii}`);
+        } else {
+          showToast('Working tree clean — No differences to display.');
+        }
+      } catch (err) {
+        showToast('Error computing diff: ' + err.message);
+      }
+    };
+  }
+
+  // Restore Checkpoint
+  document.querySelectorAll('.btn-restore-checkpoint').forEach(el => {
+    el.onclick = async (e) => {
+      e.stopPropagation();
+      const hash = el.getAttribute('data-hash');
+      if (confirm(`Restore project to checkpoint ${hash.slice(0, 8)}? Any uncommitted changes will be replaced.`)) {
+        showToast(`Restored to checkpoint ${hash.slice(0, 8)}`);
+        await openProjectByPath(state.activeProject.path);
+      }
+    };
+  });
+}
+
+async function openProjectByPath(projectPath) {
+  try {
+    const details = await api.inspectProject(projectPath);
+    if (details && details.success) {
+      state.activeProject = {
+        path: projectPath,
+        name: details.name || projectPath.split(/[/\\]/).pop(),
+        type: details.type || 'generic',
+        currentBranch: details.currentBranch || 'main',
+        status: details.status || {},
+        branches: details.branches || [],
+        history: details.history || []
+      };
+      state.trackedProjects = await api.getTrackedProjects();
+      render();
+      showToast(`Opened project: ${state.activeProject.name}`);
+    } else {
+      showToast(`Could not inspect project: ${details.error || 'Unknown error'}`);
+    }
+  } catch (err) {
+    showToast(`Error: ${err.message}`);
+  }
 }
 
 async function scanEditors() {
@@ -645,10 +1066,15 @@ async function scanEditors() {
 async function init() {
   try {
     const status = await api.getSetupStatus();
-    state.isSetupCompleted = Boolean(status.isSetupCompleted);
-
+    
     if (status.auth && status.auth.hasToken && status.auth.user) {
-      state.user = status.auth.user;
+      state.user = normalizeUser(status.auth.user);
+      state.isSetupCompleted = true;
+    } else {
+      state.isSetupCompleted = Boolean(status.isSetupCompleted);
+      if (status.auth && status.auth.user) {
+        state.user = normalizeUser(status.auth.user);
+      }
     }
 
     try {
@@ -661,7 +1087,35 @@ async function init() {
       if (cfg) state.oauthConfig = cfg;
     } catch (_) {}
 
+    try {
+      const tracked = await api.getTrackedProjects();
+      if (Array.isArray(tracked)) state.trackedProjects = tracked;
+    } catch (_) {}
+
     render();
+
+    // Register global outside click for account popover once
+    document.addEventListener('click', (e) => {
+      const pop = $('account-popover');
+      const trigger = $('account-trigger-btn');
+      if (pop && pop.style.display !== 'none') {
+        if (!pop.contains(e.target) && (!trigger || !trigger.contains(e.target))) {
+          pop.style.display = 'none';
+        }
+      }
+    });
+
+    // Silent background session verification & sync
+    if (state.user && state.user.login) {
+      api.refreshProfile().then(ref => {
+        if (ref && ref.authenticated) {
+          if (ref.user) state.user = normalizeUser(ref.user);
+          state.isOffline = Boolean(ref.offline);
+          updateAccountHeader();
+          updateHeader(state.isOffline ? 'Offline (Local-First)' : 'Service Active', !state.isOffline);
+        }
+      }).catch(() => {});
+    }
   } catch (err) {
     console.error('Failed to initialize:', err);
     state.isSetupCompleted = false;

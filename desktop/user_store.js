@@ -271,6 +271,36 @@ class UserStore {
       setupCompletedAt: null
     });
   }
+
+  /**
+   * Add a tracked project path.
+   * @param {string} projectPath
+   */
+  addTrackedProject(projectPath) {
+    if (!projectPath) return this.getSettings();
+    const settings = this.getSettings();
+    const existing = new Set(settings.trackedProjects || []);
+    existing.add(projectPath);
+    return this.updateSettings({
+      trackedProjects: Array.from(existing),
+      recentProjects: [
+        projectPath,
+        ...(settings.recentProjects || []).filter(p => p !== projectPath)
+      ].slice(0, 10)
+    });
+  }
+
+  /**
+   * Remove a tracked project path.
+   * @param {string} projectPath
+   */
+  removeTrackedProject(projectPath) {
+    const settings = this.getSettings();
+    return this.updateSettings({
+      trackedProjects: (settings.trackedProjects || []).filter(p => p !== projectPath),
+      recentProjects: (settings.recentProjects || []).filter(p => p !== projectPath)
+    });
+  }
 }
 
 // Singleton helper

@@ -567,6 +567,10 @@ class VersionEngine {
     return log;
   }
 
+  log(limit = 50) {
+    return this.getHistory(null, limit);
+  }
+
   /**
    * Traverse commit history for a specific branch or current HEAD, returning rich objects.
    * @param {string|null} [branchName=null]

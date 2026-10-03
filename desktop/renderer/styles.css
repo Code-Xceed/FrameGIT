@@ -559,3 +559,404 @@ body {
   align-items: center;
   gap: 8px;
 }
+
+/* Header Right & Account Trigger */
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  -webkit-app-region: no-drag;
+}
+
+.account-menu-container {
+  position: relative;
+}
+
+.account-trigger-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 10px 3px 5px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 20px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.account-trigger-btn:hover {
+  border-color: var(--border-hover);
+  background-color: var(--bg-surface);
+}
+
+.account-avatar-small {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.account-name-small {
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.chevron-icon {
+  color: var(--text-muted);
+}
+
+/* Account Popover Flyout */
+.account-popover {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: 290px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.65);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: popoverFade 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes popoverFade {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.popover-profile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.popover-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--border-subtle);
+  object-fit: cover;
+}
+
+.popover-meta {
+  overflow: hidden;
+  text-align: left;
+}
+
+.popover-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.popover-handle {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.popover-email {
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.popover-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.popover-status-badge {
+  font-size: 10px;
+  background-color: rgba(63, 185, 80, 0.12);
+  color: var(--text-success);
+  border: 1px solid rgba(63, 185, 80, 0.25);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+
+.popover-scope-badge {
+  font-size: 10px;
+  background-color: var(--bg-surface);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.popover-divider {
+  height: 1px;
+  background-color: var(--border-subtle);
+  margin: 2px 0;
+}
+
+.popover-menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.popover-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.12s ease;
+}
+
+.popover-item:hover {
+  background-color: var(--bg-surface);
+}
+
+.popover-item svg {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.popover-danger {
+  color: var(--text-danger);
+}
+
+.popover-danger svg {
+  color: var(--text-danger);
+}
+
+.popover-danger:hover {
+  background-color: rgba(248, 81, 73, 0.1);
+}
+
+/* Studio Workspace View */
+.workspace-shell {
+  width: 100%;
+  max-width: 900px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  animation: cardFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.workspace-hero {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  padding: 28px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.workspace-hero-left h2 {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  margin-bottom: 4px;
+}
+
+.workspace-hero-left p {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.workspace-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.workspace-action-card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+}
+
+.workspace-action-card:hover {
+  border-color: var(--border-hover);
+  background-color: var(--bg-surface);
+  transform: translateY(-2px);
+}
+
+.workspace-card-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-primary);
+}
+
+.workspace-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.workspace-card-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+/* Active Project Workspace View */
+.active-project-card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.active-project-bar {
+  padding: 16px 24px;
+  background-color: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.project-meta-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.editor-badge-icon {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 6px;
+  letter-spacing: 0.5px;
+}
+
+.editor-badge-icon.pr {
+  background: #330033;
+  color: #ea77ff;
+  border: 1px solid rgba(234, 119, 255, 0.3);
+}
+
+.editor-badge-icon.dr {
+  background: #2b1f00;
+  color: #ffaa33;
+  border: 1px solid rgba(255, 170, 51, 0.3);
+}
+
+.project-name-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.project-path-text {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.active-project-content {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.checkpoint-creator-row {
+  display: flex;
+  gap: 10px;
+}
+
+.checkpoint-text-input {
+  flex: 1;
+  height: 40px;
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 0 14px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.checkpoint-text-input:focus {
+  border-color: var(--border-focus);
+}
+
+.checkpoint-history-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.checkpoint-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  transition: border-color 0.12s ease;
+}
+
+.checkpoint-item-row:hover {
+  border-color: var(--border-hover);
+}
+
+.checkpoint-hash-tag {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background-color: var(--bg-input);
+  padding: 2px 7px;
+  border-radius: 5px;
+  color: #c4b5fd;
+  border: 1px solid rgba(124, 58, 237, 0.3);
+}
+
+.checkpoint-msg-text {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.checkpoint-author-info {
+  font-size: 11px;
+  color: var(--text-muted);
+}

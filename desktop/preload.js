@@ -31,6 +31,20 @@ contextBridge.exposeInMainWorld('framegit', {
   saveGitHubConfig: (config) => ipcRenderer.invoke('github:saveConfig', config),
   skipGitHubConfig: () => ipcRenderer.invoke('github:skipConfig'),
 
+  // Account Session Lifecycle
+  signOut: () => ipcRenderer.invoke('auth:signOut'),
+  refreshProfile: () => ipcRenderer.invoke('auth:refreshProfile'),
+  syncGitConfig: () => ipcRenderer.invoke('auth:syncGitConfig'),
+
+  // Project Management & Tracking
+  pickProject: () => ipcRenderer.invoke('project:pickDirectory'),
+  getTrackedProjects: () => ipcRenderer.invoke('project:getTracked'),
+  inspectProject: (path) => ipcRenderer.invoke('project:inspect', path),
+  commitCheckpoint: (params) => ipcRenderer.invoke('project:commit', params),
+  switchBranch: (params) => ipcRenderer.invoke('project:switchBranch', params),
+  createBranch: (params) => ipcRenderer.invoke('project:createBranch', params),
+  getProjectDiff: (projectPath) => ipcRenderer.invoke('project:getDiff', projectPath),
+
   // Creative Editor Integrations
   detectEditors: () => ipcRenderer.invoke('nle:detect'),
   installPlugin: (family) => ipcRenderer.invoke('nle:installPlugin', family),

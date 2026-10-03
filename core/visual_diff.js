@@ -479,6 +479,20 @@ class VisualDiff {
   static renderTerminalDiff(prevState, currState) {
     return this.formatAsciiDiff(prevState, currState);
   }
+
+  static renderAscii(prevState, currStateOrChanges = null) {
+    if (currStateOrChanges && !Array.isArray(currStateOrChanges) && currStateOrChanges.version) {
+      return this.formatAsciiDiff(prevState, currStateOrChanges);
+    }
+    return this.formatAsciiDiff(null, prevState);
+  }
+
+  static generateHtmlReport(prevState, currStateOrChanges = null, options = {}) {
+    if (currStateOrChanges && !Array.isArray(currStateOrChanges) && currStateOrChanges.version) {
+      return this.renderHtmlDiff(prevState, currStateOrChanges, options);
+    }
+    return this.renderHtmlDiff(null, prevState, options);
+  }
 }
 
 module.exports = { VisualDiff };
